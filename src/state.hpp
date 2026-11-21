@@ -113,7 +113,9 @@ inline int targetFps() {
 }
 
 inline void applyFps() {
-    CCDirector::get()->setAnimationInterval(1.0 / targetFps());
+    if (auto dir = CCDirector::get()) {
+        dir->setAnimationInterval(1.0 / targetFps());
+    }
 }
 
 inline bool unlockAll() {
