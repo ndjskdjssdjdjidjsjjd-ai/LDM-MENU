@@ -98,7 +98,7 @@ public:
 class PMBtn : public CCLayer {
 public:
     std::function<void()> cb;
-    CCSize size = {15.f, 15.f};
+    CCSize size = {14.f, 14.f};
     CCScale9Sprite* body = nullptr;
     CCScale9Sprite* mark = nullptr;
     CCLabelBMFont* labelNode = nullptr;
@@ -145,9 +145,9 @@ public:
     }
 
     static PMBtn* createToggle(std::function<void()> cb) {
-        auto r = create(CCSize{15.f, 15.f}, ccColor3B{32, 38, 64}, cb);
+        auto r = create(CCSize{14.f, 14.f}, ccColor3B{28, 34, 58}, cb);
         if (r) {
-            r->mark = box(CCSize{7.f, 7.f}, ccColor3B{56, 224, 245}, 255);
+            r->mark = box(CCSize{6.f, 6.f}, ccColor3B{72, 232, 250}, 255);
             if (r->mark) {
                 r->mark->setPosition({4.f, 4.f});
                 r->mark->setVisible(false);
@@ -163,11 +163,11 @@ public:
 
     void setActiveTab(bool active) {
         if (body) {
-            body->setColor(active ? ccColor3B{54, 118, 212} : ccColor3B{28, 33, 56});
+            body->setColor(active ? ccColor3B{52, 114, 214} : ccColor3B{24, 29, 50});
             body->setOpacity(active ? 255 : 210);
         }
         if (labelNode) {
-            labelNode->setColor(active ? ccColor3B{255, 255, 255} : ccColor3B{155, 168, 200});
+            labelNode->setColor(active ? ccColor3B{255, 255, 255} : ccColor3B{145, 160, 195});
         }
     }
 
@@ -182,7 +182,7 @@ public:
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
         if (!t || !pmTouchAllowed(this)) return false;
         if (!inside(this->convertToNodeSpace(t->getLocation()))) return false;
-        if (body) body->setOpacity(150);
+        if (body) body->setOpacity(145);
         return true;
     }
 
@@ -201,7 +201,7 @@ public:
 class PMButton : public CCLayer {
 public:
     std::function<void()> onTap;
-    float radius = 14.f;
+    float radius = 13.f;
     CCPoint lastPos = {0.f, 0.f};
     float moved = 0.f;
 
@@ -268,3 +268,4 @@ public:
 
     void ccTouchCancelled(CCTouch*, CCEvent*) override {}
 };
+ 
