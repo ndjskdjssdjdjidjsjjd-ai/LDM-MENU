@@ -18,8 +18,9 @@ namespace {
         }
     }
 
-    void drawRealisticHitbox(CCDrawNode* node, const CCRect& rc, ccColor4F fillCol,
-                             ccColor4F borderCol, float borderThick, bool withInnerCore) {
+    // Draws overlapping hitbox frames like a dense ribbon trail (similar to reference screenshot)
+    void drawRibbonHitboxFrame(CCDrawNode* node, const CCRect& rc, ccColor4F fillCol,
+                               ccColor4F borderCol, float borderThick) {
         if (!node || rc.size.width <= 0.f || rc.size.height <= 0.f) return;
 
         CCPoint bl{rc.origin.x, rc.origin.y};
@@ -34,21 +35,6 @@ namespace {
         node->drawSegment(br, tr, borderThick, borderCol);
         node->drawSegment(tr, tl, borderThick, borderCol);
         node->drawSegment(tl, bl, borderThick, borderCol);
-
-        if (withInnerCore && rc.size.width > 6.f && rc.size.height > 6.f) {
-            float insetX = rc.size.width * 0.22f;
-            float insetY = rc.size.height * 0.22f;
-            CCPoint ibl{rc.origin.x + insetX, rc.origin.y + insetY};
-            CCPoint ibr{rc.origin.x + rc.size.width - insetX, rc.origin.y + insetY};
-            CCPoint itr{rc.origin.x + rc.size.width - insetX, rc.origin.y + rc.size.height - insetY};
-            CCPoint itl{rc.origin.x + insetX, rc.origin.y + rc.size.height - insetY};
-            float coreThick = std::max(0.5f, borderThick * 0.65f);
-            ccColor4F coreCol{borderCol.r, borderCol.g, borderCol.b, borderCol.a * 0.65f};
-            node->drawSegment(ibl, ibr, coreThick, coreCol);
-            node->drawSegment(ibr, itr, coreThick, coreCol);
-            node->drawSegment(itr, itl, coreThick, coreCol);
-            node->drawSegment(itl, ibl, coreThick, coreCol);
-        }
     }
 }
 
@@ -191,16 +177,15 @@ class $modify(PMPlay, PlayLayer) {
             float t = static_cast<float>(i + 1) / static_cast<float>(count);
             if (!isDeathFrame && s.trail <= 0) continue;
 
-            float alpha = isDeathFrame ? 0.96f : (0.14f + 0.45f * t);
-            float fillAlpha = isDeathFrame ? 0.14f : (0.02f + 0.06f * t);
-            float thick = isDeathFrame ? 1.15f : 0.65f;
-            drawRealisticHitbox(
+            float borderAlpha = isDeathFrame ? 0.98f : (0.28f + 0.58f * t);
+            float fillAlpha = isDeathFrame ? 0.24f : (0.06f + 0.16f * t);
+            float thick = isDeathFrame ? 1.25f : 0.72f;
+            drawRibbonHitboxFrame(
                 m_fields->deathNode,
                 m_fields->deathFrames[i],
                 ccColor4F{r, g, b, fillAlpha},
-                ccColor4F{r, g, b, alpha},
-                thick,
-                isDeathFrame
+                ccColor4F{r, g, b, borderAlpha},
+                thick
             );
         }
     }
@@ -220,7 +205,7 @@ class $modify(PMPlay, PlayLayer) {
 
         auto& s = S();
         m_fields->deathFrames.clear();
-        int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 36) : 0;
+        int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 90) : 0;
         if (trailCount > 0 && !m_fields->recentRects.empty()) {
             int start = std::max(0, static_cast<int>(m_fields->recentRects.size()) - trailCount);
             for (int i = start; i < static_cast<int>(m_fields->recentRects.size()); ++i) {
@@ -246,7 +231,7 @@ class $modify(PMPlay, PlayLayer) {
             }
         }
 
-        m_fields->hudBg = PMBtn::box({168.f, 24.f}, {14, 16, 28}, 158);
+        m_fields->hudBg = PMBtn::box({164.f, 22.f}, {12, 14, 24}, 165);
         if (m_fields->hudBg) {
             m_fields->hudBg->setAnchorPoint({0.f, 1.f});
             m_fields->hudBg->setPosition({8.f, win.height - 6.f});
@@ -255,16 +240,16 @@ class $modify(PMPlay, PlayLayer) {
 
         m_fields->indicator = CCDrawNode::create();
         if (m_fields->indicator) {
-            m_fields->indicator->setPosition({18.f, win.height - 18.f});
+            m_fields->indicator->setPosition({17.f, win.height - 17.f});
             this->addChild(m_fields->indicator, 950);
         }
 
         m_fields->stats = CCLabelBMFont::create("", "chatFont.fnt");
         if (m_fields->stats) {
-            m_fields->stats->setScale(0.58f);
-            m_fields->stats->setColor({236, 240, 250});
+            m_fields->stats->setScale(0.54f);
+            m_fields->stats->setColor({232, 238, 250});
             m_fields->stats->setAnchorPoint({0.f, 1.f});
-            m_fields->stats->setPosition({30.f, win.height - 10.f});
+            m_fields->stats->setPosition({28.f, win.height - 10.f});
             this->addChild(m_fields->stats, 950);
         }
 
@@ -375,7 +360,7 @@ class $modify(PMPlay, PlayLayer) {
 
         if (m_player1) {
             m_fields->recentRects.push_back(m_player1->getObjectRect());
-            while (static_cast<int>(m_fields->recentRects.size()) > 60) {
+            while (static_cast<int>(m_fields->recentRects.size()) > 90) {
                 m_fields->recentRects.pop_front();
             }
         }
@@ -424,8 +409,8 @@ class $modify(PMPlay, PlayLayer) {
         }
 
         if (m_fields->hudBg) {
-            float cardH = 16.f + static_cast<float>(lines.size()) * 12.f;
-            m_fields->hudBg->setContentSize({168.f, cardH});
+            float cardH = 15.f + static_cast<float>(lines.size()) * 11.f;
+            m_fields->hudBg->setContentSize({164.f, cardH});
             if (auto dir = CCDirector::get()) {
                 auto win = dir->getWinSize();
                 m_fields->hudBg->setPosition({8.f, win.height - 6.f});
@@ -440,13 +425,13 @@ class $modify(PMPlay, PlayLayer) {
             m_fields->indicator->clear();
             ccColor4F fill = cheating ? ccColor4F{0.96f, 0.24f, 0.24f, 0.96f}
                                        : ccColor4F{0.22f, 0.92f, 0.40f, 0.96f};
-            m_fields->indicator->drawDot({0.f, 0.f}, 5.5f, fill);
+            m_fields->indicator->drawDot({0.f, 0.f}, 5.f, fill);
             drawCircleOutline(
                 m_fields->indicator,
                 {0.f, 0.f},
-                5.8f,
+                5.3f,
                 24,
-                1.2f,
+                1.15f,
                 ccColor4F{0.05f, 0.06f, 0.10f, 0.96f}
             );
         }
