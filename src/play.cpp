@@ -8,7 +8,9 @@ class $modify(PMPause, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
         if (!menuHidden()) {
-            this->addChild(PMController::create(true), 200);
+            if (auto pm = PMController::create(true)) {
+                this->addChild(pm, 200);
+            }
         }
     }
 };
@@ -48,23 +50,33 @@ class $modify(PMPlay, PlayLayer) {
         auto win = CCDirector::get()->getWinSize();
         applyFps();
 
-        m_fields->trailNode = CCDrawNode::create();
-        m_objectLayer->addChild(m_fields->trailNode, 5);
+        if (m_objectLayer) {
+            m_fields->trailNode = CCDrawNode::create();
+            if (m_fields->trailNode) {
+                m_objectLayer->addChild(m_fields->trailNode, 5);
+            }
+        }
 
         m_fields->dot = CCDrawNode::create();
-        m_fields->dot->setPosition({14.f, win.height - 14.f});
-        this->addChild(m_fields->dot, 100);
+        if (m_fields->dot) {
+            m_fields->dot->setPosition({14.f, win.height - 14.f});
+            this->addChild(m_fields->dot, 100);
+        }
 
         m_fields->stats = CCLabelBMFont::create("", "bigFont.fnt");
-        m_fields->stats->setScale(0.33f);
-        m_fields->stats->setOpacity(190);
-        m_fields->stats->setAnchorPoint({0.f, 1.f});
-        m_fields->stats->setPosition({28.f, win.height - 4.f});
-        this->addChild(m_fields->stats, 100);
+        if (m_fields->stats) {
+            m_fields->stats->setScale(0.33f);
+            m_fields->stats->setOpacity(190);
+            m_fields->stats->setAnchorPoint({0.f, 1.f});
+            m_fields->stats->setPosition({28.f, win.height - 4.f});
+            this->addChild(m_fields->stats, 100);
+        }
 
         m_fields->pm = PMController::create(true);
-        if (menuHidden()) m_fields->pm->setVisible(false);
-        this->addChild(m_fields->pm, 200);
+        if (m_fields->pm) {
+            if (menuHidden()) m_fields->pm->setVisible(false);
+            this->addChild(m_fields->pm, 200);
+        }
         return true;
     }
 
@@ -79,7 +91,9 @@ class $modify(PMPlay, PlayLayer) {
         m_fields->deaths = 0;
         m_fields->lastHit = -10;
         m_fields->trailRects.clear();
-        m_fields->trailNode->clear();
+        if (m_fields->trailNode) {
+            m_fields->trailNode->clear();
+        }
         if (s.hitboxOnDeath) {
             m_isDebugDrawEnabled = false;
             this->updateDebugDraw();
@@ -122,6 +136,10 @@ class $modify(PMPlay, PlayLayer) {
         auto& s = S();
         auto& rects = m_fields->trailRects;
         auto node = m_fields->trailNode;
+        if (!node || !m_player1) {
+            rects.clear();
+            return;
+        }
         if (s.trail <= 0) {
             if (!rects.empty()) {
                 rects.clear();
@@ -133,7 +151,8 @@ class $modify(PMPlay, PlayLayer) {
         while (static_cast<int>(rects.size()) > s.trail) rects.pop_front();
 
         node->clear();
-        auto c = TRAIL_COLORS[s.trailColor].color;
+        int colorIdx = std::clamp(s.trailColor, 0, std::max(0, static_cast<int>(TRAIL_COLORS.size()) - 1));
+        auto c = TRAIL_COLORS[colorIdx].color;
         float r = c.r / 255.f;
         float g = c.g / 255.f;
         float b = c.b / 255.f;
@@ -170,7 +189,9 @@ class $modify(PMPlay, PlayLayer) {
         m_fields->totalFrames++;
         this->updateTrail();
 
-        CCDirector::get()->getScheduler()->setTimeScale(s.safe ? 1.f : s.speed);
+        if (auto sched = CCDirector::get()->getScheduler()) {
+            sched->setTimeScale(s.safe ? 1.f : s.speed);
+        }
 
         double now = nowSec();
         m_fields->fpsCount++;
@@ -199,18 +220,24 @@ class $modify(PMPlay, PlayLayer) {
         if (s.recording) text += "\nMACRO: recording";
         if (replayOn) text += "\nMACRO: replaying";
         if (s.safe) text += "\nSAFE MODE";
-        m_fields->stats->setString(text.c_str());
+        if (m_fields->stats) {
+            m_fields->stats->setString(text.c_str());
+        }
 
         // honest indicator: red = cheats on, green = clean
-        m_fields->dot->clear();
-        ccColor4F color = cheating ? ccColor4F{1.f, 0.15f, 0.15f, 1.f}
-                                   : ccColor4F{0.1f, 1.f, 0.2f, 1.f};
-        m_fields->dot->drawDot({0.f, 0.f}, 10.f, ccColor4F{0.f, 0.f, 0.f, 1.f});
-        m_fields->dot->drawDot({0.f, 0.f}, 8.f, color);
+        if (m_fields->dot) {
+            m_fields->dot->clear();
+            ccColor4F color = cheating ? ccColor4F{1.f, 0.15f, 0.15f, 1.f}
+                                       : ccColor4F{0.1f, 1.f, 0.2f, 1.f};
+            m_fields->dot->drawDot({0.f, 0.f}, 10.f, ccColor4F{0.f, 0.f, 0.f, 1.f});
+            m_fields->dot->drawDot({0.f, 0.f}, 8.f, color);
+        }
     }
 
     void onQuit() {
-        CCDirector::get()->getScheduler()->setTimeScale(1.f);
+        if (auto sched = CCDirector::get()->getScheduler()) {
+            sched->setTimeScale(1.f);
+        }
         CCDirector::get()->setAnimationInterval(1.0 / 60.0);
         PlayLayer::onQuit();
     }
