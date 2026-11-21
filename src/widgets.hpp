@@ -98,7 +98,7 @@ public:
 class PMBtn : public CCLayer {
 public:
     std::function<void()> cb;
-    CCSize size = {18.f, 18.f};
+    CCSize size = {15.f, 15.f};
     CCScale9Sprite* body = nullptr;
     CCScale9Sprite* mark = nullptr;
     CCLabelBMFont* labelNode = nullptr;
@@ -119,7 +119,7 @@ public:
             r->size = size;
             r->cb = cb;
             r->setContentSize(size);
-            r->body = box(size, color, 230);
+            r->body = box(size, color, 235);
             if (r->body) r->addChild(r->body);
             r->setTouchEnabled(true);
             r->autorelease();
@@ -145,9 +145,9 @@ public:
     }
 
     static PMBtn* createToggle(std::function<void()> cb) {
-        auto r = create(CCSize{17.f, 17.f}, ccColor3B{40, 46, 74}, cb);
+        auto r = create(CCSize{15.f, 15.f}, ccColor3B{32, 38, 64}, cb);
         if (r) {
-            r->mark = box(CCSize{9.f, 9.f}, ccColor3B{72, 238, 128}, 255);
+            r->mark = box(CCSize{7.f, 7.f}, ccColor3B{56, 224, 245}, 255);
             if (r->mark) {
                 r->mark->setPosition({4.f, 4.f});
                 r->mark->setVisible(false);
@@ -163,11 +163,11 @@ public:
 
     void setActiveTab(bool active) {
         if (body) {
-            body->setColor(active ? ccColor3B{68, 92, 168} : ccColor3B{36, 41, 66});
+            body->setColor(active ? ccColor3B{54, 118, 212} : ccColor3B{28, 33, 56});
             body->setOpacity(active ? 255 : 210);
         }
         if (labelNode) {
-            labelNode->setColor(active ? ccColor3B{255, 255, 255} : ccColor3B{175, 185, 210});
+            labelNode->setColor(active ? ccColor3B{255, 255, 255} : ccColor3B{155, 168, 200});
         }
     }
 
@@ -189,19 +189,19 @@ public:
     void ccTouchMoved(CCTouch*, CCEvent*) override {}
 
     void ccTouchEnded(CCTouch* t, CCEvent*) override {
-        if (body) body->setOpacity(230);
+        if (body) body->setOpacity(235);
         if (t && inside(this->convertToNodeSpace(t->getLocation())) && cb) cb();
     }
 
     void ccTouchCancelled(CCTouch*, CCEvent*) override {
-        if (body) body->setOpacity(230);
+        if (body) body->setOpacity(235);
     }
 };
 
 class PMButton : public CCLayer {
 public:
     std::function<void()> onTap;
-    float radius = 16.f;
+    float radius = 14.f;
     CCPoint lastPos = {0.f, 0.f};
     float moved = 0.f;
 
