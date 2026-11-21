@@ -5,7 +5,7 @@
 #include "extras.hpp"
 
 inline float uiScale() {
-    return std::clamp(Mod::get()->getSavedValue<float>("ui-scale", 0.75f), 0.5f, 1.f);
+    return std::clamp(Mod::get()->getSavedValue<float>("ui-scale", 0.75f), 0.5f, 0.95f);
 }
 
 inline bool showStats() {
@@ -16,11 +16,15 @@ inline bool showHitboxes() {
     return Mod::get()->getSavedValue<bool>("show-hitboxes", false);
 }
 
+inline bool trailOn() {
+    return Mod::get()->getSavedValue<bool>("trail-on", false);
+}
+
 // the whole menu: PM button + panel
 class PMController : public CCNode {
 public:
     static constexpr float PW = 420.f;
-    static constexpr float PH = 300.f;
+    static constexpr float PH = 330.f;
 
     CCNode* panel = nullptr;
     DragBar* dragBar = nullptr;
@@ -35,6 +39,7 @@ public:
     PMBtn* safeT = nullptr;
     PMBtn* hitboxT = nullptr;
     PMBtn* boxesT = nullptr;
+    PMBtn* trailT = nullptr;
     PMBtn* statsT = nullptr;
     PMBtn* unlockT = nullptr;
     PMBtn* recT = nullptr;
@@ -121,38 +126,39 @@ public:
         panel->addChild(dragBar);
 
         // left column
-        noclipT = toggle("Noclip", 238.f, [this]() { onNoclip(); });
-        safeT = toggle("Safe mode", 210.f, [this]() { onSafe(); });
-        hitboxT = toggle("Hitbox on death", 182.f, [this]() { onHitbox(); });
-        boxesT = toggle("Show hitboxes", 154.f, [this]() { onBoxes(); });
-        statsT = toggle("Show stats", 126.f, [this]() { onStats(); });
-        unlockT = toggle("Unlock icons", 98.f, [this]() { onUnlock(); });
+        noclipT = toggle("Noclip", 268.f, [this]() { onNoclip(); });
+        safeT = toggle("Safe mode", 240.f, [this]() { onSafe(); });
+        hitboxT = toggle("Hitbox on death", 212.f, [this]() { onHitbox(); });
+        boxesT = toggle("Show hitboxes", 184.f, [this]() { onBoxes(); });
+        trailT = toggle("Hitbox trail", 156.f, [this]() { onTrail(); });
+        statsT = toggle("Show stats", 128.f, [this]() { onStats(); });
+        unlockT = toggle("Unlock icons", 100.f, [this]() { onUnlock(); });
         if (inGame) {
-            recT = toggle("Record macro", 70.f, [this]() { onRecord(); });
-            replayT = toggle("Replay macro", 42.f, [this]() { onReplay(); });
+            recT = toggle("Record macro", 72.f, [this]() { onRecord(); });
+            replayT = toggle("Replay macro", 44.f, [this]() { onReplay(); });
             macroLabel = label("", 14.f, 16.f, 0.65f, true);
         }
 
         // right column
-        speedLabel = stepper(238.f, [this]() { changeSpeed(-0.25f); },
+        speedLabel = stepper(268.f, [this]() { changeSpeed(-0.25f); },
                              [this]() { changeSpeed(0.25f); });
-        fpsLabel = stepper(210.f, [this]() { changeFps(-1); },
+        fpsLabel = stepper(240.f, [this]() { changeFps(-1); },
                            [this]() { changeFps(1); });
-        delayLabel = stepper(182.f, [this]() { changeDelay(-0.25f); },
+        delayLabel = stepper(212.f, [this]() { changeDelay(-0.25f); },
                              [this]() { changeDelay(0.25f); });
-        trailLabel = stepper(154.f, [this]() { changeTrail(-50); },
+        trailLabel = stepper(184.f, [this]() { changeTrail(-50); },
                              [this]() { changeTrail(50); });
-        colorLabel = stepper(126.f, [this]() { changeColor(-1); },
+        colorLabel = stepper(156.f, [this]() { changeColor(-1); },
                              [this]() { changeColor(1); });
-        sizeLabel = stepper(98.f, [this]() { changeSize(-0.05f); },
+        sizeLabel = stepper(128.f, [this]() { changeSize(-0.05f); },
                             [this]() { changeSize(0.05f); });
 
-        button("Cheats off", 265.f, 70.f, {200, 70, 70}, [this]() { onCheatsOff(); });
-        button("Hide menu", 355.f, 70.f, {90, 95, 125}, [this]() { onHide(); });
-        button("Lite mode", 265.f, 42.f, {50, 160, 90}, [this]() { onLite(); });
-        button("CBF", 355.f, 42.f, {130, 90, 200}, []() { openCBF(); });
-        button("Save icons", 265.f, 14.f, {50, 120, 215}, []() { saveIcons(); });
-        button("Load icons", 355.f, 14.f, {50, 120, 215}, []() { loadIcons(); });
+        button("Cheats off", 265.f, 100.f, {200, 70, 70}, [this]() { onCheatsOff(); });
+        button("Hide menu", 355.f, 100.f, {90, 95, 125}, [this]() { onHide(); });
+        button("Lite mode", 265.f, 72.f, {50, 160, 90}, [this]() { onLite(); });
+        button("CBF", 355.f, 72.f, {130, 90, 200}, []() { openCBF(); });
+        button("Save icons", 265.f, 44.f, {50, 120, 215}, []() { saveIcons(); });
+        button("Load icons", 355.f, 44.f, {50, 120, 215}, []() { loadIcons(); });
 
         // the round PM button (smaller)
         auto pmText = CCLabelBMFont::create("PM", "bigFont.fnt");
@@ -181,6 +187,7 @@ public:
         safeT->setOn(s.safe);
         hitboxT->setOn(s.hitboxOnDeath);
         boxesT->setOn(showHitboxes());
+        trailT->setOn(trailOn());
         statsT->setOn(showStats());
         unlockT->setOn(unlockAll());
         if (recT) recT->setOn(s.recording);
@@ -188,8 +195,7 @@ public:
         speedLabel->setString(fmt::format("Speed: {:.2f}x", s.speed).c_str());
         fpsLabel->setString(fmt::format("FPS: {}", FPS_STEPS[s.fpsIndex]).c_str());
         delayLabel->setString(fmt::format("Delay: {:.2f}s", s.respawnDelay).c_str());
-        if (s.trail == 0) trailLabel->setString("Trail: off");
-        else trailLabel->setString(fmt::format("Trail: {}", s.trail).c_str());
+        trailLabel->setString(fmt::format("Length: {}", s.trail).c_str());
         colorLabel->setString(fmt::format("Color: {}", TRAIL_COLORS[s.trailColor].name).c_str());
         sizeLabel->setString(fmt::format("Size: {}%", static_cast<int>(std::round(uiScale() * 100.f))).c_str());
         if (macroLabel) macroLabel->setString(fmt::format("{} inputs", s.macro.size()).c_str());
@@ -216,6 +222,11 @@ public:
 
     void onBoxes() {
         Mod::get()->setSavedValue<bool>("show-hitboxes", !showHitboxes());
+        refresh();
+    }
+
+    void onTrail() {
+        Mod::get()->setSavedValue<bool>("trail-on", !trailOn());
         refresh();
     }
 
@@ -267,7 +278,7 @@ public:
     }
 
     void changeSize(float d) {
-        float sc = std::clamp(uiScale() + d, 0.5f, 1.f);
+        float sc = std::clamp(uiScale() + d, 0.5f, 0.95f);
         sc = std::round(sc * 20.f) / 20.f;
         Mod::get()->setSavedValue<float>("ui-scale", sc);
         panel->setScale(sc);
@@ -312,6 +323,7 @@ public:
         s.hitboxOnDeath = false;
         s.recording = false;
         s.replaying = false;
+        Mod::get()->setSavedValue<bool>("trail-on", false);
         saveAll();
         applyFps();
         refresh();
@@ -323,6 +335,7 @@ public:
         s.trail = 0;
         s.hitboxOnDeath = false;
         s.respawnDelay = 0.f;
+        Mod::get()->setSavedValue<bool>("trail-on", false);
         saveAll();
         refresh();
         pmNotify("Lite mode on. Also try Low Detail Mode in GD settings");
