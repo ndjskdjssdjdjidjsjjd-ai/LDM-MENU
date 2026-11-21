@@ -193,7 +193,6 @@ class $modify(PMPlay, PlayLayer) {
         if (!m_fields->trailNode) return;
         auto& s = S();
 
-        // Non-stop hitbox / trail while playing when Hitbox Show or Live Trail is enabled
         if ((s.hitboxShow || s.liveTrail) && m_player1) {
             int maxCap = s.hitboxShow ? 1000 : 120;
             int len = (s.trail > 0) ? std::clamp(s.trail, 1, 1000) : (s.hitboxShow ? 1000 : 36);
@@ -210,7 +209,6 @@ class $modify(PMPlay, PlayLayer) {
             return;
         }
 
-        // Frozen death hitbox / trail after dying
         if (m_fields->hasFrozenDeath && !m_fields->frozenDeathFrames.empty()) {
             renderFrames(m_fields->frozenDeathFrames, true);
             return;
@@ -292,9 +290,6 @@ class $modify(PMPlay, PlayLayer) {
         this->stopActionByTag(8801);
         applyStartPosSelection();
         PlayLayer::resetLevel();
-        if (m_isPracticeMode) {
-            this->togglePracticeMode(S().autoCheckpoints);
-        }
 
         auto& s = S();
         s.frame = 0;
