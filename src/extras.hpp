@@ -6,10 +6,11 @@
 using namespace geode::prelude;
 
 inline void pmNotify(const char* text) {
-    Notification::create(text, NotificationIcon::Info)->show();
+    if (auto n = Notification::create(text, NotificationIcon::Info)) {
+        n->show();
+    }
 }
 
-// Click Between Frames is a separate mod, this just opens its settings
 inline void openCBF() {
     auto mod = Loader::get()->getLoadedMod("syzzi.click_between_frames");
     if (!mod) {
@@ -18,4 +19,3 @@ inline void openCBF() {
     }
     openSettingsPopup(mod, false);
 }
-
