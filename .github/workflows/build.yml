@@ -1,0 +1,43 @@
+name: Build LDM-MENU
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: Android64
+            os: ubuntu-latest
+            target: Android64
+          - name: Android32
+            os: ubuntu-latest
+            target: Android32
+          - name: Windows
+            os: windows-latest
+            target: Win64
+
+    runs-on: ${{ matrix.config.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build Geode Mod
+        id: build
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          sdk: "v5.11.2"
+          target: ${{ matrix.config.target }}
+          combine: true
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: LDM-MENU-${{ matrix.config.name }}
+          path: ${{ steps.build.outputs.build-output }}
+          
