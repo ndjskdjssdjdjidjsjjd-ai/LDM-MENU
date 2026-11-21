@@ -18,7 +18,6 @@ namespace {
         }
     }
 
-    // Draws overlapping hitbox frames like a dense ribbon trail[span_1](start_span)[span_1](end_span)
     void drawRibbonHitboxFrame(CCDrawNode* node, const CCRect& rc, ccColor4F fillCol,
                                ccColor4F borderCol, float borderThick) {
         if (!node || rc.size.width <= 0.f || rc.size.height <= 0.f) return;
@@ -173,12 +172,13 @@ class $modify(PMPlay, PlayLayer) {
         float b = c.b / 255.f;
 
         int count = static_cast<int>(frames.size());
-        for (int i = 0; i < count; ++i) {
-            bool isHead = highlightLast && (i == count - 1);
+        int step = std::max(1, count / 180);
+        for (int i = 0; i < count; i += step) {
+            bool isHead = highlightLast && (i >= count - step);
             float t = static_cast<float>(i + 1) / static_cast<float>(count);
-            float borderAlpha = isHead ? 0.98f : (0.24f + 0.58f * t);
-            float fillAlpha = isHead ? 0.24f : (0.05f + 0.15f * t);
-            float thick = isHead ? 1.25f : 0.70f;
+            float borderAlpha = isHead ? 0.98f : (0.22f + 0.56f * t);
+            float fillAlpha = isHead ? 0.22f : (0.04f + 0.14f * t);
+            float thick = isHead ? 1.20f : 0.65f;
             drawRibbonHitboxFrame(
                 m_fields->trailNode,
                 frames[i],
@@ -193,17 +193,20 @@ class $modify(PMPlay, PlayLayer) {
         if (!m_fields->trailNode) return;
         auto& s = S();
 
-        // Live trail while playing (no death required)
-        if (s.liveTrail && m_player1) {
-            int len = (s.trail > 0) ? std::clamp(s.trail, 4, 90) : 36;
-            std::vector<CCRect> liveFrames;
-            liveFrames.reserve(static_cast<size_t>(len) + 1);
+        // Non-stop hitbox / trail while playing when Hitbox Show or Live Trail is enabled
+        if ((s.hitboxShow || s.liveTrail) && m_player1) {
+            int maxCap = s.hitboxShow ? 1000 : 120;
+            int len = (s.trail > 0) ? std::clamp(s.trail, 1, 1000) : (s.hitboxShow ? 1000 : 36);
+            len = std::min(len, maxCap);
+
+            std::vector<CCRect> activeFrames;
+            activeFrames.reserve(static_cast<size_t>(len) + 1);
             int start = std::max(0, static_cast<int>(m_fields->recentRects.size()) - len);
             for (int i = start; i < static_cast<int>(m_fields->recentRects.size()); ++i) {
-                liveFrames.push_back(m_fields->recentRects[i]);
+                activeFrames.push_back(m_fields->recentRects[i]);
             }
-            liveFrames.push_back(m_player1->getObjectRect());
-            renderFrames(liveFrames, true);
+            activeFrames.push_back(m_player1->getObjectRect());
+            renderFrames(activeFrames, true);
             return;
         }
 
@@ -231,7 +234,7 @@ class $modify(PMPlay, PlayLayer) {
 
         auto& s = S();
         m_fields->frozenDeathFrames.clear();
-        int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 90) : 0;
+        int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 1000) : 0;
         if (trailCount > 0 && !m_fields->recentRects.empty()) {
             int start = std::max(0, static_cast<int>(m_fields->recentRects.size()) - trailCount);
             for (int i = start; i < static_cast<int>(m_fields->recentRects.size()); ++i) {
@@ -258,7 +261,7 @@ class $modify(PMPlay, PlayLayer) {
             }
         }
 
-        m_fields->hudBg = PMBtn::box({158.f, 20.f}, {11, 13, 22}, 168);
+        m_fields->hudBg = PMBtn::box({154.f, 19.f}, {16, 11, 14}, 172);
         if (m_fields->hudBg) {
             m_fields->hudBg->setAnchorPoint({0.f, 1.f});
             m_fields->hudBg->setPosition({7.f, win.height - 6.f});
@@ -267,16 +270,16 @@ class $modify(PMPlay, PlayLayer) {
 
         m_fields->indicator = CCDrawNode::create();
         if (m_fields->indicator) {
-            m_fields->indicator->setPosition({15.5f, win.height - 16.f});
+            m_fields->indicator->setPosition({15.f, win.height - 15.5f});
             this->addChild(m_fields->indicator, 950);
         }
 
         m_fields->stats = CCLabelBMFont::create("", "chatFont.fnt");
         if (m_fields->stats) {
-            m_fields->stats->setScale(0.50f);
-            m_fields->stats->setColor({230, 238, 250});
+            m_fields->stats->setScale(0.47f);
+            m_fields->stats->setColor({245, 232, 222});
             m_fields->stats->setAnchorPoint({0.f, 1.f});
-            m_fields->stats->setPosition({25.f, win.height - 9.5f});
+            m_fields->stats->setPosition({24.f, win.height - 9.f});
             this->addChild(m_fields->stats, 950);
         }
 
@@ -301,7 +304,9 @@ class $modify(PMPlay, PlayLayer) {
         m_fields->hitFrames = 0;
         m_fields->deaths = 0;
         m_fields->lastHit = -10;
-        m_fields->recentRects.clear();
+        if (!s.hitboxShow) {
+            m_fields->recentRects.clear();
+        }
         m_fields->frozenDeathFrames.clear();
         m_fields->hasFrozenDeath = false;
         if (m_fields->trailNode) {
@@ -388,7 +393,7 @@ class $modify(PMPlay, PlayLayer) {
 
         if (m_player1) {
             m_fields->recentRects.push_back(m_player1->getObjectRect());
-            while (static_cast<int>(m_fields->recentRects.size()) > 90) {
+            while (static_cast<int>(m_fields->recentRects.size()) > 1000) {
                 m_fields->recentRects.pop_front();
             }
         }
@@ -423,7 +428,8 @@ class $modify(PMPlay, PlayLayer) {
         }
         if (speedOn) lines.push_back(fmt::format("Speed {:.2f}x", s.speed));
         if (fpsOn) lines.push_back(fmt::format("FPS Cap {}", targetFps()));
-        if (s.liveTrail) lines.push_back("Live Trail");
+        if (s.hitboxShow) lines.push_back("Hitbox Show");
+        else if (s.liveTrail) lines.push_back("Live Trail");
         if (s.instantRespawn) lines.push_back("Instant Retry");
         else if (s.respawnDelay > 0.01f) lines.push_back(fmt::format("Delay {:.2f}s", s.respawnDelay));
         if (s.noBestOrbs) lines.push_back("No Best Orbs");
@@ -439,8 +445,8 @@ class $modify(PMPlay, PlayLayer) {
         }
 
         if (m_fields->hudBg) {
-            float cardH = 13.f + static_cast<float>(lines.size()) * 10.f;
-            m_fields->hudBg->setContentSize({158.f, cardH});
+            float cardH = 12.f + static_cast<float>(lines.size()) * 9.5f;
+            m_fields->hudBg->setContentSize({154.f, cardH});
             if (auto dir = CCDirector::get()) {
                 auto win = dir->getWinSize();
                 m_fields->hudBg->setPosition({7.f, win.height - 6.f});
@@ -455,13 +461,13 @@ class $modify(PMPlay, PlayLayer) {
             m_fields->indicator->clear();
             ccColor4F fill = cheating ? ccColor4F{0.96f, 0.24f, 0.24f, 0.96f}
                                        : ccColor4F{0.22f, 0.92f, 0.40f, 0.96f};
-            m_fields->indicator->drawDot({0.f, 0.f}, 4.6f, fill);
+            m_fields->indicator->drawDot({0.f, 0.f}, 4.3f, fill);
             drawCircleOutline(
                 m_fields->indicator,
                 {0.f, 0.f},
-                4.9f,
+                4.6f,
                 24,
-                1.1f,
+                1.05f,
                 ccColor4F{0.05f, 0.06f, 0.10f, 0.96f}
             );
         }
