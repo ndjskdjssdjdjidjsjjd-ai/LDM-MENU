@@ -1,117 +1,188 @@
-{%- if comments -%}
-/**
- * Include the Geode headers.
- */
-{% endif -%}
 #include <Geode/Geode.hpp>
-{% if comments %}
-/**
- * Brings cocos2d and all Geode namespaces to the current scope.
- */
-{%- endif %}
-using namespace geode::prelude;
-{% if comments %}
-/**
- * `$modify` lets you extend and modify GD's classes.
- * To hook a function in Geode, simply $modify the class
- * and write a new function definition with the signature of
- * the function you want to hook.
- *
- * Here we use the overloaded `$modify` macro to set our own class name,
- * so that we can use it for button callbacks.
- *
- * Notice the header being included, you *must* include the header for
- * the class you are modifying, or you will get a compile error.
- *
- * Another way you could do this is like this:
- *
- * struct MyMenuLayer : Modify<MyMenuLayer, MenuLayer> {};
- */
-{%- endif %}
 #include <Geode/modify/MenuLayer.hpp>
-class $modify(MyMenuLayer, MenuLayer) {
-{%- if comments %}
-	/**
-	 * Typically classes in GD are initialized using the `init` function, (though not always!),
-	 * so here we use it to add our own button to the bottom menu.
-	 *
-	 * Note that for all hooks, your signature has to *match exactly*,
-	 * `void init()` would not place a hook!
-	*/
-{%- endif %}
-	bool init() {
-{%- if comments %}
-		/**
-		 * We call the original init function so that the
-		 * original class is properly initialized.
-		 */
-{%- endif %}
-		if (!MenuLayer::init()) {
-			return false;
-		}
-{% if comments %}
-		/**
-		 * You can use methods from the `geode::log` namespace to log messages to the console,
-		 * being useful for debugging and such. See this page for more info about logging:
-		 * https://docs.geode-sdk.org/tutorials/logging
-		*/
-{%- endif %}
-		log::debug("Hello from my MenuLayer::init hook! This layer has {} children.", this->getChildrenCount());
-{% if comments %}
-		/**
-		 * See this page for more info about buttons
-		 * https://docs.geode-sdk.org/tutorials/buttons
-		*/
-{%- endif %}
-		auto myButton = CCMenuItemSpriteExtra::create(
-			CCSprite::createWithSpriteFrameName("GJ_likeBtn_001.png"),
-			this,
-{%- if comments %}
-			/**
-			 * Here we use the name we set earlier for our modify class.
-			*/
-{%- endif %}
-			menu_selector(MyMenuLayer::onMyButton)
-		);
-{% if comments %}
-		/**
-		 * Here we access the `bottom-menu` node by its ID, and add our button to it.
-		 * Node IDs are a Geode feature, see this page for more info about it:
-		 * https://docs.geode-sdk.org/tutorials/nodetree
-		*/
-{%- endif %}
-		auto menu = this->getChildByID("bottom-menu");
-		menu->addChild(myButton);
-{% if comments %}
-		/**
-		 * The `_spr` string literal operator just prefixes the string with
-		 * your mod id followed by a slash. This is good practice for setting your own node ids.
-		*/
-{%- endif %}
-		myButton->setID("my-button"_spr);
-{% if comments %}
-		/**
-		 * We update the layout of the menu to ensure that our button is properly placed.
-		 * This is yet another Geode feature, see this page for more info about it:
-		 * https://docs.geode-sdk.org/tutorials/layouts
-		*/
-{%- endif %}
-		menu->updateLayout();
-{% if comments %}
-		/**
-		 * We return `true` to indicate that the class was properly initialized.
-		 */
-{%- endif %}
-		return true;
-	}
-{% if comments %}
-	/**
-	 * This is the callback function for the button we created earlier.
-	 * The signature for button callbacks must always be the same,
-	 * return type `void` and taking a `CCObject*`.
-	*/
-{%- endif %}
-	void onMyButton(CCObject*) {
-		FLAlertLayer::create("Geode", "Hello from my custom mod!", "OK")->show();
-	}
+#include <Geode/modify/PlayLayer.hpp>
+#include <algorithm>
+#include <deque>
+#include <chrono>
+
+using namespace geode::prelude;
+
+namespace ldm {
+
+struct ModState {
+    bool lowGraphics = false;
+    bool cheatActive = false;
+    int targetFps = 240;
+    std::deque<double> clickTimes;
+    double lastFpsUpdate = 0.0;
+    int frameCounter = 0;
+    int currentFps = 0;
+};
+
+inline ModState& state() {
+    static ModState s;
+    return s;
+}
+
+inline double nowSec() {
+    using clock = std::chrono::steady_clock;
+    static auto start = clock::now();
+    return std::chrono::duration<double>(clock::now() - start).count();
+}
+
+inline int clampFps(int fps) {
+    return std::clamp(fps, 30, 240);
+}
+
+inline void applyFpsCap(int fps) {
+    int clamped = clampFps(fps);
+    state().targetFps = clamped;
+    if (auto* app = CCDirector::sharedDirector()->getOpenGLView()) {
+        // Cocos2d interval = 1.0 / FPS
+        CCApplication::sharedApplication()->setAnimationInterval(1.0 / static_cast<double>(clamped));
+    }
+}
+
+inline void applyLowGraphics(bool enabled) {
+    state().lowGraphics = enabled;
+    Mod::get()->setSettingValue<bool>("low-graphics", enabled);
+
+    if (auto* gm = GameManager::sharedState()) {
+        // 0060 is Low Detail Mode in GD's game variables
+        gm->setGameVariable("0060", enabled);
+    }
+}
+
+inline int computeCps() {
+    double t = nowSec();
+    auto& q = state().clickTimes;
+    while (!q.empty() && (t - q.front()) > 1.0) {
+        q.pop_front();
+    }
+    return static_cast<int>(q.size());
+}
+
+inline void recordClick() {
+    state().clickTimes.push_back(nowSec());
+}
+
+inline void drawIndicatorCircle(CCDrawNode* dot, bool cheated) {
+    if (!dot) return;
+    dot->clear();
+    ccColor4F fill = cheated
+        ? ccc4f(1.0f, 0.22f, 0.22f, 1.0f)
+        : ccc4f(0.10f, 0.90f, 0.25f, 1.0f);
+    ccColor4F border = ccc4f(1.0f, 1.0f, 1.0f, 0.85f);
+    dot->drawDot(CCPointZero, 6.0f, fill, 1.5f, border);
+}
+
+} // namespace ldm
+
+class $modify(LDMMenuLayer, MenuLayer) {
+    struct Fields {
+        CCLabelBMFont* m_statusLabel = nullptr;
+        CCDrawNode* m_indicator = nullptr;
+    };
+
+    bool init() {
+        if (!MenuLayer::init()) return false;
+
+        auto* mod = Mod::get();
+        ldm::state().lowGraphics = mod->getSettingValue<bool>("low-graphics");
+        ldm::state().targetFps = ldm::clampFps(mod->getSettingValue<int64_t>("fps-limit"));
+
+        ldm::applyLowGraphics(ldm::state().lowGraphics);
+        ldm::applyFpsCap(ldm::state().targetFps);
+
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+
+        // Low Graphics toggle button on the right menu
+        auto* rightMenu = this->getChildByID("right-side-menu");
+        if (!rightMenu) {
+            rightMenu = CCMenu::create();
+            rightMenu->setPosition({winSize.width - 36.f, winSize.height / 2.f});
+            rightMenu->setLayout(ColumnLayout::create()->setGap(8.f));
+            this->addChild(rightMenu);
+        }
+
+        auto* btnSprite = ButtonSprite::create(
+            ldm::state().lowGraphics ? "LDM: ON" : "LDM: OFF",
+            "goldFont.fnt",
+            "GJ_button_01.png",
+            0.75f
+        );
+        auto* ldmBtn = CCMenuItemSpriteExtra::create(
+            btnSprite,
+            this,
+            menu_selector(LDMMenuLayer::onToggleLowGraphics)
+        );
+        ldmBtn->setID("ldm-menu-low-graphics-btn"_spr);
+        rightMenu->addChild(ldmBtn);
+        rightMenu->updateLayout();
+
+        // Top-left HUD: Green/Red circle indicator + FPS/CPS label
+        auto* dot = CCDrawNode::create();
+        dot->setPosition({18.f, winSize.height - 16.f});
+        ldm::drawIndicatorCircle(dot, ldm::state().cheatActive);
+        this->addChild(dot, 100);
+        m_fields->m_indicator = dot;
+
+        auto* label = CCLabelBMFont::create("FPS: 0 | CPS: 0", "chatFont.fnt");
+        label->setAnchorPoint({0.f, 0.5f});
+        label->setScale(0.65f);
+        label->setPosition({32.f, winSize.height - 16.f});
+        this->addChild(label, 100);
+        m_fields->m_statusLabel = label;
+
+        this->schedule(schedule_selector(LDMMenuLayer::onTickHud), 0.0f);
+        return true;
+    }
+
+    void onToggleLowGraphics(CCObject* sender) {
+        bool nextState = !ldm::state().lowGraphics;
+        ldm::applyLowGraphics(nextState);
+
+        if (auto* btn = typeinfo_cast<CCMenuItemSpriteExtra*>(sender)) {
+            if (auto* spr = typeinfo_cast<ButtonSprite*>(btn->getNormalImage())) {
+                spr->setString(nextState ? "LDM: ON" : "LDM: OFF");
+            }
+        }
+        Notification::create(
+            nextState ? "Low Graphics / LDM Enabled" : "Low Graphics / LDM Disabled",
+            NotificationIcon::Info
+        )->show();
+    }
+
+    void onTickHud(float dt) {
+        auto& st = ldm::state();
+        st.frameCounter++;
+        double now = ldm::nowSec();
+        if (st.lastFpsUpdate == 0.0) st.lastFpsUpdate = now;
+
+        if ((now - st.lastFpsUpdate) >= 0.25) {
+            st.currentFps = static_cast<int>(st.frameCounter / (now - st.lastFpsUpdate));
+            st.frameCounter = 0;
+            st.lastFpsUpdate = now;
+        }
+
+        bool showHud = Mod::get()->getSettingValue<bool>("show-hud");
+        if (m_fields->m_statusLabel) {
+            m_fields->m_statusLabel->setVisible(showHud);
+            if (showHud) {
+                std::string text = fmt::format("FPS: {} | CPS: {}", st.currentFps, ldm::computeCps());
+                m_fields->m_statusLabel->setString(text.c_str());
+            }
+        }
+        if (m_fields->m_indicator) {
+            m_fields->m_indicator->setVisible(showHud);
+            ldm::drawIndicatorCircle(m_fields->m_indicator, st.cheatActive);
+        }
+    }
+};
+
+class $modify(LDMPlayLayer, PlayLayer) {
+    void ccTouchBegan(CCTouch* touch, CCEvent* event) {
+        ldm::recordClick();
+        PlayLayer::ccTouchBegan(touch, event);
+    }
 };
