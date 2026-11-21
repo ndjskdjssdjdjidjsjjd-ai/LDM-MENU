@@ -20,7 +20,7 @@ inline const std::vector<TrailColor> TRAIL_COLORS = {
     {"Green", {50, 245, 110}},
     {"Blue", {70, 145, 255}},
     {"Pink", {255, 105, 205}},
-    {"White", {245, 248, 255}}
+    {"Cyan", {65, 225, 245}}
 };
 
 struct PMState {
@@ -28,12 +28,16 @@ struct PMState {
     bool safe = false;
     bool noBestOrbs = false;
     bool smartStartPos = false;
+    bool instantRespawn = false;
+    bool noDeathEffect = false;
+    bool autoCheckpoints = true;
+    bool fastMenu = false;
     float speed = 1.f;
     int fpsIndex = 1;
     float respawnDelay = 0.f;
     int trail = 0;
     int trailColor = 0;
-    int startPosIndex = -1; // -1 = normal start (no StartPos forced)
+    int startPosIndex = -1;
     bool hitboxOnDeath = false;
     bool recording = false;
     bool replaying = false;
@@ -54,6 +58,10 @@ inline PMState& S() {
         s.safe = m->getSavedValue<bool>("safe", false);
         s.noBestOrbs = m->getSavedValue<bool>("no-best-orbs", false);
         s.smartStartPos = m->getSavedValue<bool>("smart-startpos", false);
+        s.instantRespawn = m->getSavedValue<bool>("instant-respawn", false);
+        s.noDeathEffect = m->getSavedValue<bool>("no-death-effect", false);
+        s.autoCheckpoints = m->getSavedValue<bool>("auto-checkpoints", true);
+        s.fastMenu = m->getSavedValue<bool>("fast-menu", false);
         s.speed = std::clamp(m->getSavedValue<float>("speed", 1.f), 0.25f, 2.f);
         s.fpsIndex = std::clamp(m->getSavedValue<int>("fps-index", 1), 0,
                                 static_cast<int>(FPS_STEPS.size()) - 1);
@@ -73,6 +81,10 @@ inline void saveAll() {
     m->setSavedValue<bool>("safe", s.safe);
     m->setSavedValue<bool>("no-best-orbs", s.noBestOrbs);
     m->setSavedValue<bool>("smart-startpos", s.smartStartPos);
+    m->setSavedValue<bool>("instant-respawn", s.instantRespawn);
+    m->setSavedValue<bool>("no-death-effect", s.noDeathEffect);
+    m->setSavedValue<bool>("auto-checkpoints", s.autoCheckpoints);
+    m->setSavedValue<bool>("fast-menu", s.fastMenu);
     m->setSavedValue<float>("speed", s.speed);
     m->setSavedValue<int>("fps-index", s.fpsIndex);
     m->setSavedValue<float>("delay", s.respawnDelay);
