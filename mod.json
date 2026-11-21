@@ -1,9 +1,9 @@
-"fps-limit": {
-  "type": "int",
-  "name": "FPS Limit (Max 240)",
-  "description": "Target frame rate cap between 30 and 240 FPS.",
-  "default": 240,
-  "min": 30,
-  "max": 240,
-  "control": { "slider": true }
+{
+  "geode": "5.11.2",
+  "gd": "*",
+  "version": "v0.1.0",
+  "id": "kaizmm.ldm_menu",
+  "name": "LDM-MENU",
+  "developer": "YourName",
+  "description": "LDM menu with CPS/FPS labels, cheat indicator, noclip, speed, hitbox trail and macro."
 }
