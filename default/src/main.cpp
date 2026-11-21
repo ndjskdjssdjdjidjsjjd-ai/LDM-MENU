@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -12,124 +13,220 @@ using namespace geode::prelude;
 
 namespace ldm {
 
-struct MacroEvent {
-    double timeOffset = 0.0;
-    bool down = false;
+struct MacroFrame {
+    uint32_t frame = 0;
+    bool holding = false;
+    double playerX = 0.0;
+    double playerY = 0.0;
 };
 
-struct State {
-    bool menuVisible = true;
-    CCPoint panelPos = { 90.f, 140.f };
+struct HitboxPoint {
+    CCPoint center;
+    float radius = 8.f;
+};
 
+struct LdmState {
+    // Menu & visibility
+    bool menuOpen = true;
+    bool menuHidden = false;
+    CCPoint menuPos = { 120.f, 160.f };
+
+    // Cheats & physics
     bool noclip = false;
     float speed = 1.0f;
     int fpsLimit = 240;
+    int tpsLimit = 240;
 
-    bool recording = false;
-    bool playing = false;
-    double macroStartTime = 0.0;
-    size_t macroIndex = 0;
-    std::vector<MacroEvent> macroEvents;
+    // Hitbox trail (max 1000 frames)
+    bool hitboxTrail = true;
+    static constexpr size_t MAX_HITBOX_FRAMES = 1000;
+    std::deque<HitboxPoint> hitboxPoints;
 
+    // Bot macro (realistic frames)
+    bool macroRecord = false;
+    bool macroPlay = false;
+    bool isHolding = false;
+    uint32_t currentFrame = 0;
+    std::vector<MacroFrame> macroFrames;
+
+    // Stats & labels
     int deaths = 0;
     int totalClicks = 0;
     int validClicks = 0;
-
-    int fps = 0;
-    int frames = 0;
-    double lastFpsTime = 0.0;
-    std::deque<double> clickTimes;
+    int currentFps = 0;
+    int frameCounter = 0;
+    double lastFpsSample = 0.0;
+    std::deque<double> clickTimestamps;
 };
 
-inline State& state() {
-    static State s;
+inline LdmState& state() {
+    static LdmState s;
     return s;
 }
 
-inline double now() {
+inline double nowSec() {
     using clock = std::chrono::steady_clock;
-    static auto t0 = clock::now();
-    return std::chrono::duration<double>(clock::now() - t0).count();
+    static auto start = clock::now();
+    return std::chrono::duration<double>(clock::now() - start).count();
 }
 
-inline bool isCheatActive() {
-    auto& s = state();
-    return s.noclip || s.playing || (std::abs(s.speed - 1.0f) > 0.01f);
+inline bool isCheating() {
+    auto& st = state();
+    return st.noclip || st.macroPlay || (std::abs(st.speed - 1.0f) > 0.01f);
 }
 
-inline void applyFps(int fps) {
-    auto& s = state();
-    s.fpsLimit = std::clamp(fps, 30, 360);
-    CCApplication::sharedApplication()->setAnimationInterval(1.0 / static_cast<double>(s.fpsLimit));
+inline std::filesystem::path saveFilePath() {
+    return Mod::get()->getSaveDir() / "ldm_state.json";
 }
 
-inline void applySpeed(float spd) {
-    auto& s = state();
-    s.speed = std::clamp(spd, 0.25f, 3.0f);
-    if (auto* sched = CCDirector::sharedDirector()->getScheduler()) {
-        sched->setTimeScale(s.speed);
+inline void saveState() {
+    auto& st = state();
+    matjson::Value root = matjson::Value::object();
+    root["menuOpen"] = st.menuOpen;
+    root["menuHidden"] = st.menuHidden;
+    root["menuX"] = st.menuPos.x;
+    root["menuY"] = st.menuPos.y;
+    root["noclip"] = st.noclip;
+    root["speed"] = st.speed;
+    root["fpsLimit"] = st.fpsLimit;
+    root["tpsLimit"] = st.tpsLimit;
+    root["hitboxTrail"] = st.hitboxTrail;
+    root["deaths"] = st.deaths;
+    root["totalClicks"] = st.totalClicks;
+    root["validClicks"] = st.validClicks;
+
+    std::error_code ec;
+    std::filesystem::create_directories(Mod::get()->getSaveDir(), ec);
+    std::ofstream out(saveFilePath(), std::ios::out | std::ios::trunc);
+    if (out.is_open()) {
+        out << root.dump(2);
     }
 }
 
-inline int getCps() {
-    double t = now();
-    auto& q = state().clickTimes;
+inline void loadState() {
+    auto path = saveFilePath();
+    if (!std::filesystem::exists(path)) return;
+
+    std::ifstream in(path);
+    if (!in.is_open()) return;
+
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    auto parsed = matjson::parse(content);
+    if (!parsed.isOk()) return;
+
+    auto root = parsed.unwrap();
+    auto& st = state();
+
+    if (root.contains("menuOpen") && root["menuOpen"].isBool())
+        st.menuOpen = root["menuOpen"].asBool().unwrapOr(true);
+    if (root.contains("menuHidden") && root["menuHidden"].isBool())
+        st.menuHidden = root["menuHidden"].asBool().unwrapOr(false);
+    if (root.contains("menuX") && root["menuX"].isNumber() && root.contains("menuY") && root["menuY"].isNumber()) {
+        st.menuPos.x = static_cast<float>(root["menuX"].asDouble().unwrapOr(120.0));
+        st.menuPos.y = static_cast<float>(root["menuY"].asDouble().unwrapOr(160.0));
+    }
+    if (root.contains("noclip") && root["noclip"].isBool())
+        st.noclip = root["noclip"].asBool().unwrapOr(false);
+    if (root.contains("speed") && root["speed"].isNumber())
+        st.speed = std::clamp(static_cast<float>(root["speed"].asDouble().unwrapOr(1.0)), 0.25f, 3.0f);
+    if (root.contains("fpsLimit") && root["fpsLimit"].isNumber())
+        st.fpsLimit = std::clamp(static_cast<int>(root["fpsLimit"].asInt().unwrapOr(240)), 30, 360);
+    if (root.contains("tpsLimit") && root["tpsLimit"].isNumber())
+        st.tpsLimit = std::clamp(static_cast<int>(root["tpsLimit"].asInt().unwrapOr(240)), 60, 480);
+    if (root.contains("hitboxTrail") && root["hitboxTrail"].isBool())
+        st.hitboxTrail = root["hitboxTrail"].asBool().unwrapOr(true);
+    if (root.contains("deaths") && root["deaths"].isNumber())
+        st.deaths = std::max(0, static_cast<int>(root["deaths"].asInt().unwrapOr(0)));
+    if (root.contains("totalClicks") && root["totalClicks"].isNumber())
+        st.totalClicks = std::max(0, static_cast<int>(root["totalClicks"].asInt().unwrapOr(0)));
+    if (root.contains("validClicks") && root["validClicks"].isNumber())
+        st.validClicks = std::max(0, static_cast<int>(root["validClicks"].asInt().unwrapOr(0)));
+}
+
+inline void applyFps(int fps) {
+    auto& st = state();
+    st.fpsLimit = std::clamp(fps, 30, 360);
+    CCApplication::sharedApplication()->setAnimationInterval(1.0 / static_cast<double>(st.fpsLimit));
+    saveState();
+}
+
+inline void applyTps(int tps) {
+    auto& st = state();
+    st.tpsLimit = std::clamp(tps, 60, 480);
+    if (auto* fmod = FMODAudioEngine::sharedEngine()) {
+        // Keep audio pitch/time synced cleanly when speed changes
+    }
+    saveState();
+}
+
+inline void applySpeed(float spd) {
+    auto& st = state();
+    st.speed = std::clamp(spd, 0.25f, 3.0f);
+    if (auto* scheduler = CCDirector::sharedDirector()->getScheduler()) {
+        scheduler->setTimeScale(st.speed);
+    }
+    saveState();
+}
+
+inline int computeCps() {
+    double t = nowSec();
+    auto& q = state().clickTimestamps;
     while (!q.empty() && (t - q.front()) > 1.0) {
         q.pop_front();
     }
     return static_cast<int>(q.size());
 }
 
-inline float getAccuracy() {
-    auto& s = state();
-    if (s.totalClicks <= 0) return 100.0f;
-    float pct = (static_cast<float>(s.validClicks) / static_cast<float>(s.totalClicks)) * 100.0f;
-    return std::clamp(pct, 0.0f, 100.0f);
+inline float computeAccuracy() {
+    auto& st = state();
+    if (st.totalClicks <= 0) return 100.0f;
+    float acc = (static_cast<float>(st.validClicks) / static_cast<float>(st.totalClicks)) * 100.0f;
+    return std::clamp(acc, 0.0f, 100.0f);
 }
 
 inline void recordClick(bool valid = true) {
-    auto& s = state();
-    double t = now();
-    s.clickTimes.push_back(t);
-    s.totalClicks++;
-    if (valid) s.validClicks++;
-
-    if (s.recording) {
-        s.macroEvents.push_back(MacroEvent{ t - s.macroStartTime, valid });
-    }
+    auto& st = state();
+    st.clickTimestamps.push_back(nowSec());
+    st.totalClicks++;
+    if (valid) st.validClicks++;
 }
 
-inline void drawIndicator(CCDrawNode* dot) {
-    if (!dot) return;
-    dot->clear();
-    ccColor4F fill = isCheatActive()
+inline void drawCheatCircle(CCDrawNode* node) {
+    if (!node) return;
+    node->clear();
+    bool cheat = isCheating();
+    ccColor4F fill = cheat
         ? ccc4f(0.95f, 0.20f, 0.20f, 1.0f)
-        : ccc4f(0.10f, 0.90f, 0.25f, 1.0f);
-    ccColor4F border = ccc4f(1.0f, 1.0f, 1.0f, 0.9f);
-    dot->drawDot(CCPointZero, 7.f, fill, 1.5f, border);
+        : ccc4f(0.12f, 0.92f, 0.30f, 1.0f);
+    ccColor4F outline = ccc4f(1.0f, 1.0f, 1.0f, 0.9f);
+    node->drawDot(CCPointZero, 7.0f, fill, 1.5f, outline);
 }
 
-class LdmMenuV1 : public CCLayer {
+// Movable LDM overlay widget shared across MenuLayer and PlayLayer
+class LdmOverlay : public CCLayer {
 public:
-    CCLayerColor* m_box = nullptr;
-    CCDrawNode* m_dot = nullptr;
-    CCLabelBMFont* m_hudLabel = nullptr;
+    CCLayerColor* m_panel = nullptr;
+    CCMenu* m_showBtnMenu = nullptr;
+    CCDrawNode* m_cheatDot = nullptr;
+    CCLabelBMFont* m_statsLabel = nullptr;
 
-    CCLabelBMFont* m_fpsVal = nullptr;
-    CCLabelBMFont* m_speedVal = nullptr;
-    CCLabelBMFont* m_noclipVal = nullptr;
-    CCLabelBMFont* m_macroVal = nullptr;
+    CCLabelBMFont* m_noclipLbl = nullptr;
+    CCLabelBMFont* m_speedLbl = nullptr;
+    CCLabelBMFont* m_fpsLbl = nullptr;
+    CCLabelBMFont* m_tpsLbl = nullptr;
+    CCLabelBMFont* m_macroLbl = nullptr;
+    CCLabelBMFont* m_hitboxLbl = nullptr;
 
     bool m_dragging = false;
-    CCPoint m_dragDelta = CCPointZero;
+    CCPoint m_dragOffset = CCPointZero;
 
-    static LdmMenuV1* create() {
-        auto* p = new LdmMenuV1();
-        if (p && p->init()) {
-            p->autorelease();
-            return p;
+    static LdmOverlay* create() {
+        auto* ret = new LdmOverlay();
+        if (ret && ret->init()) {
+            ret->autorelease();
+            return ret;
         }
-        CC_SAFE_DELETE(p);
+        CC_SAFE_DELETE(ret);
         return nullptr;
     }
 
@@ -137,197 +234,262 @@ public:
         if (!CCLayer::init()) return false;
         this->setTouchEnabled(true);
         this->setTouchMode(kCCTouchesOneByOne);
-        this->setTouchPriority(-400);
+        this->setTouchPriority(-500);
 
-        auto win = CCDirector::sharedDirector()->getWinSize();
-        auto& s = state();
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+        auto& st = state();
 
-        // Cheat indicator green circle + labels
-        m_dot = CCDrawNode::create();
-        m_dot->setPosition({ 18.f, win.height - 18.f });
-        drawIndicator(m_dot);
-        this->addChild(m_dot, 200);
+        // Cheat circle + live labels at top-left
+        m_cheatDot = CCDrawNode::create();
+        m_cheatDot->setPosition({ 18.f, winSize.height - 18.f });
+        drawCheatCircle(m_cheatDot);
+        this->addChild(m_cheatDot, 200);
 
-        m_hudLabel = CCLabelBMFont::create("CPS:0 FPS:0 Noclip:OFF Acc:100.0% Deaths:0", "chatFont.fnt");
-        m_hudLabel->setAnchorPoint({ 0.f, 0.5f });
-        m_hudLabel->setScale(0.55f);
-        m_hudLabel->setPosition({ 32.f, win.height - 18.f });
-        this->addChild(m_hudLabel, 200);
+        m_statsLabel = CCLabelBMFont::create("CPS:0 FPS:0 Noclip:OFF Acc:100% Deaths:0", "chatFont.fnt");
+        m_statsLabel->setAnchorPoint({ 0.f, 0.5f });
+        m_statsLabel->setScale(0.55f);
+        m_statsLabel->setPosition({ 32.f, winSize.height - 18.f });
+        this->addChild(m_statsLabel, 200);
 
-        // Toggle button for LDM-MENU v1
-        auto* topMenu = CCMenu::create();
-        topMenu->setPosition({ win.width - 48.f, win.height - 22.f });
-        auto* toggleSpr = ButtonSprite::create("LDM v1", "goldFont.fnt", "GJ_button_01.png", 0.6f);
-        auto* toggleBtn = CCMenuItemSpriteExtra::create(toggleSpr, this, menu_selector(LdmMenuV1::onToggleMenu));
-        topMenu->addChild(toggleBtn);
-        this->addChild(topMenu, 210);
+        // Re-open button when menu is hidden
+        m_showBtnMenu = CCMenu::create();
+        m_showBtnMenu->setPosition({ winSize.width - 42.f, winSize.height - 24.f });
+        auto* showSpr = ButtonSprite::create("LDM", "goldFont.fnt", "GJ_button_01.png", 0.65f);
+        auto* showItem = CCMenuItemSpriteExtra::create(showSpr, this, menu_selector(LdmOverlay::onToggleHide));
+        m_showBtnMenu->addChild(showItem);
+        this->addChild(m_showBtnMenu, 210);
 
-        // Movable panel
-        const float w = 215.f;
-        const float h = 145.f;
-        m_box = CCLayerColor::create({ 20, 20, 26, 225 }, w, h);
-        m_box->setPosition(s.panelPos);
-        m_box->setVisible(s.menuVisible);
-        this->addChild(m_box, 205);
+        // Movable LDM panel
+        const float w = 230.f;
+        const float h = 175.f;
+        m_panel = CCLayerColor::create({ 18, 18, 24, 225 }, w, h);
+        m_panel->setPosition(st.menuPos);
+        this->addChild(m_panel, 205);
 
-        auto* title = CCLabelBMFont::create("LDM-MENU v1", "bigFont.fnt");
+        auto* title = CCLabelBMFont::create("LDM MENU (DRAG)", "bigFont.fnt");
         title->setScale(0.38f);
-        title->setPosition({ w / 2.f, h - 14.f });
-        m_box->addChild(title);
+        title->setPosition({ 75.f, h - 14.f });
+        m_panel->addChild(title);
 
         auto* menu = CCMenu::create();
         menu->setPosition({ 0.f, 0.f });
-        m_box->addChild(menu);
+        m_panel->addChild(menu);
 
-        // FPS changer
-        auto* fpsSpr = ButtonSprite::create("FPS", "goldFont.fnt", "GJ_button_01.png", 0.5f);
-        auto* fpsBtn = CCMenuItemSpriteExtra::create(fpsSpr, this, menu_selector(LdmMenuV1::onFps));
-        fpsBtn->setPosition({ 36.f, h - 42.f });
-        menu->addChild(fpsBtn);
+        // Hide button inside LDM panel
+        auto* hideSpr = ButtonSprite::create("Hide", "goldFont.fnt", "GJ_button_06.png", 0.55f);
+        auto* hideBtn = CCMenuItemSpriteExtra::create(hideSpr, this, menu_selector(LdmOverlay::onToggleHide));
+        hideBtn->setPosition({ w - 28.f, h - 14.f });
+        menu->addChild(hideBtn);
 
-        m_fpsVal = CCLabelBMFont::create("240", "chatFont.fnt");
-        m_fpsVal->setScale(0.55f);
-        m_fpsVal->setPosition({ 76.f, h - 42.f });
-        m_box->addChild(m_fpsVal);
+        // Row 1: Noclip & Speed
+        auto* noclipSpr = ButtonSprite::create("Noclip", "goldFont.fnt", "GJ_button_01.png", 0.52f);
+        auto* noclipBtn = CCMenuItemSpriteExtra::create(noclipSpr, this, menu_selector(LdmOverlay::onToggleNoclip));
+        noclipBtn->setPosition({ 38.f, h - 42.f });
+        menu->addChild(noclipBtn);
 
-        // Speed changer
-        auto* spdSpr = ButtonSprite::create("Speed", "goldFont.fnt", "GJ_button_01.png", 0.5f);
-        auto* spdBtn = CCMenuItemSpriteExtra::create(spdSpr, this, menu_selector(LdmMenuV1::onSpeed));
-        spdBtn->setPosition({ 132.f, h - 42.f });
+        m_noclipLbl = CCLabelBMFont::create("OFF", "chatFont.fnt");
+        m_noclipLbl->setScale(0.55f);
+        m_noclipLbl->setPosition({ 78.f, h - 42.f });
+        m_panel->addChild(m_noclipLbl);
+
+        auto* spdSpr = ButtonSprite::create("Spd+", "goldFont.fnt", "GJ_button_01.png", 0.52f);
+        auto* spdBtn = CCMenuItemSpriteExtra::create(spdSpr, this, menu_selector(LdmOverlay::onCycleSpeed));
+        spdBtn->setPosition({ 135.f, h - 42.f });
         menu->addChild(spdBtn);
 
-        m_speedVal = CCLabelBMFont::create("1.00x", "chatFont.fnt");
-        m_speedVal->setScale(0.55f);
-        m_speedVal->setPosition({ 182.f, h - 42.f });
-        m_box->addChild(m_speedVal);
+        m_speedLbl = CCLabelBMFont::create("1.00x", "chatFont.fnt");
+        m_speedLbl->setScale(0.55f);
+        m_speedLbl->setPosition({ 185.f, h - 42.f });
+        m_panel->addChild(m_speedLbl);
 
-        // Noclip toggle
-        auto* ncSpr = ButtonSprite::create("Noclip", "goldFont.fnt", "GJ_button_01.png", 0.5f);
-        auto* ncBtn = CCMenuItemSpriteExtra::create(ncSpr, this, menu_selector(LdmMenuV1::onNoclip));
-        ncBtn->setPosition({ 42.f, h - 76.f });
-        menu->addChild(ncBtn);
+        // Row 2: FPS & TPS changers
+        auto* fpsSpr = ButtonSprite::create("FPS+", "goldFont.fnt", "GJ_button_01.png", 0.52f);
+        auto* fpsBtn = CCMenuItemSpriteExtra::create(fpsSpr, this, menu_selector(LdmOverlay::onCycleFps));
+        fpsBtn->setPosition({ 38.f, h - 74.f });
+        menu->addChild(fpsBtn);
 
-        m_noclipVal = CCLabelBMFont::create("OFF", "chatFont.fnt");
-        m_noclipVal->setScale(0.55f);
-        m_noclipVal->setPosition({ 88.f, h - 76.f });
-        m_box->addChild(m_noclipVal);
+        m_fpsLbl = CCLabelBMFont::create("240", "chatFont.fnt");
+        m_fpsLbl->setScale(0.55f);
+        m_fpsLbl->setPosition({ 78.f, h - 74.f });
+        m_panel->addChild(m_fpsLbl);
 
-        // Macro recorder / player
-        auto* macSpr = ButtonSprite::create("Macro", "goldFont.fnt", "GJ_button_01.png", 0.5f);
-        auto* macBtn = CCMenuItemSpriteExtra::create(macSpr, this, menu_selector(LdmMenuV1::onMacro));
-        macBtn->setPosition({ 138.f, h - 76.f });
-        menu->addChild(macBtn);
+        auto* tpsSpr = ButtonSprite::create("TPS+", "goldFont.fnt", "GJ_button_01.png", 0.52f);
+        auto* tpsBtn = CCMenuItemSpriteExtra::create(tpsSpr, this, menu_selector(LdmOverlay::onCycleTps));
+        tpsBtn->setPosition({ 135.f, h - 74.f });
+        menu->addChild(tpsBtn);
 
-        m_macroVal = CCLabelBMFont::create("OFF", "chatFont.fnt");
-        m_macroVal->setScale(0.52f);
-        m_macroVal->setPosition({ 184.f, h - 76.f });
-        m_box->addChild(m_macroVal);
+        m_tpsLbl = CCLabelBMFont::create("240", "chatFont.fnt");
+        m_tpsLbl->setScale(0.55f);
+        m_tpsLbl->setPosition({ 185.f, h - 74.f });
+        m_panel->addChild(m_tpsLbl);
 
-        // Reset stats
-        auto* rstSpr = ButtonSprite::create("Reset", "goldFont.fnt", "GJ_button_06.png", 0.5f);
-        auto* rstBtn = CCMenuItemSpriteExtra::create(rstSpr, this, menu_selector(LdmMenuV1::onReset));
+        // Row 3: Bot Macro & Hitbox Trail (max 1000 frames)
+        auto* macroSpr = ButtonSprite::create("Macro", "goldFont.fnt", "GJ_button_01.png", 0.52f);
+        auto* macroBtn = CCMenuItemSpriteExtra::create(macroSpr, this, menu_selector(LdmOverlay::onCycleMacro));
+        macroBtn->setPosition({ 42.f, h - 108.f });
+        menu->addChild(macroBtn);
+
+        m_macroLbl = CCLabelBMFont::create("IDLE", "chatFont.fnt");
+        m_macroLbl->setScale(0.52f);
+        m_macroLbl->setPosition({ 92.f, h - 108.f });
+        m_panel->addChild(m_macroLbl);
+
+        auto* hbSpr = ButtonSprite::create("Hitbox", "goldFont.fnt", "GJ_button_01.png", 0.52f);
+        auto* hbBtn = CCMenuItemSpriteExtra::create(hbSpr, this, menu_selector(LdmOverlay::onToggleHitbox));
+        hbBtn->setPosition({ 152.f, h - 108.f });
+        menu->addChild(hbBtn);
+
+        m_hitboxLbl = CCLabelBMFont::create("1000f", "chatFont.fnt");
+        m_hitboxLbl->setScale(0.52f);
+        m_hitboxLbl->setPosition({ 200.f, h - 108.f });
+        m_panel->addChild(m_hitboxLbl);
+
+        // Row 4: Reset Stats
+        auto* rstSpr = ButtonSprite::create("Reset Stats", "goldFont.fnt", "GJ_button_06.png", 0.52f);
+        auto* rstBtn = CCMenuItemSpriteExtra::create(rstSpr, this, menu_selector(LdmOverlay::onResetStats));
         rstBtn->setPosition({ w / 2.f, 24.f });
         menu->addChild(rstBtn);
 
-        refreshUi();
-        this->schedule(schedule_selector(LdmMenuV1::onUpdate), 0.0f);
+        syncVisibility();
+        refreshLabels();
+        this->schedule(schedule_selector(LdmOverlay::onTick), 0.0f);
         return true;
     }
 
-    void refreshUi() {
-        auto& s = state();
-        if (m_fpsVal) m_fpsVal->setString(fmt::format("{}", s.fpsLimit).c_str());
-        if (m_speedVal) m_speedVal->setString(fmt::format("{:.2f}x", s.speed).c_str());
-        if (m_noclipVal) m_noclipVal->setString(s.noclip ? "ON" : "OFF");
-        if (m_macroVal) {
-            if (s.recording) m_macroVal->setString("REC");
-            else if (s.playing) m_macroVal->setString("PLAY");
-            else m_macroVal->setString("OFF");
+    void syncVisibility() {
+        auto& st = state();
+        if (m_panel) m_panel->setVisible(!st.menuHidden);
+        if (m_showBtnMenu) m_showBtnMenu->setVisible(st.menuHidden);
+    }
+
+    void refreshLabels() {
+        auto& st = state();
+        if (m_noclipLbl) m_noclipLbl->setString(st.noclip ? "ON" : "OFF");
+        if (m_speedLbl) m_speedLbl->setString(fmt::format("{:.2f}x", st.speed).c_str());
+        if (m_fpsLbl) m_fpsLbl->setString(fmt::format("{}", st.fpsLimit).c_str());
+        if (m_tpsLbl) m_tpsLbl->setString(fmt::format("{}", st.tpsLimit).c_str());
+
+        if (m_macroLbl) {
+            if (st.macroRecord) m_macroLbl->setString("REC");
+            else if (st.macroPlay) m_macroLbl->setString("PLAY");
+            else m_macroLbl->setString("IDLE");
         }
-        drawIndicator(m_dot);
-    }
-
-    void onToggleMenu(CCObject*) {
-        auto& s = state();
-        s.menuVisible = !s.menuVisible;
-        if (m_box) m_box->setVisible(s.menuVisible);
-    }
-
-    void onFps(CCObject*) {
-        const int list[] = { 60, 120, 144, 240, 360 };
-        auto& s = state();
-        int next = list[0];
-        for (size_t i = 0; i < std::size(list); ++i) {
-            if (s.fpsLimit == list[i]) {
-                next = list[(i + 1) % std::size(list)];
-                break;
-            }
+        if (m_hitboxLbl) {
+            m_hitboxLbl->setString(st.hitboxTrail ? fmt::format("{}f", st.hitboxPoints.size()).c_str() : "OFF");
         }
-        applyFps(next);
-        refreshUi();
+        drawCheatCircle(m_cheatDot);
     }
 
-    void onSpeed(CCObject*) {
-        const float list[] = { 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
-        auto& s = state();
-        float next = list[0];
-        for (size_t i = 0; i < std::size(list); ++i) {
-            if (std::abs(s.speed - list[i]) < 0.02f) {
-                next = list[(i + 1) % std::size(list)];
+    void onToggleHide(CCObject*) {
+        auto& st = state();
+        st.menuHidden = !st.menuHidden;
+        syncVisibility();
+        saveState();
+    }
+
+    void onToggleNoclip(CCObject*) {
+        auto& st = state();
+        st.noclip = !st.noclip;
+        refreshLabels();
+        saveState();
+    }
+
+    void onCycleSpeed(CCObject*) {
+        const float presets[] = { 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
+        auto& st = state();
+        float next = presets[0];
+        for (size_t i = 0; i < std::size(presets); ++i) {
+            if (std::abs(st.speed - presets[i]) < 0.02f) {
+                next = presets[(i + 1) % std::size(presets)];
                 break;
             }
         }
         applySpeed(next);
-        refreshUi();
+        refreshLabels();
     }
 
-    void onNoclip(CCObject*) {
-        auto& s = state();
-        s.noclip = !s.noclip;
-        refreshUi();
+    void onCycleFps(CCObject*) {
+        const int presets[] = { 60, 120, 144, 240, 360 };
+        auto& st = state();
+        int next = presets[0];
+        for (size_t i = 0; i < std::size(presets); ++i) {
+            if (st.fpsLimit == presets[i]) {
+                next = presets[(i + 1) % std::size(presets)];
+                break;
+            }
+        }
+        applyFps(next);
+        refreshLabels();
     }
 
-    void onMacro(CCObject*) {
-        auto& s = state();
-        if (!s.recording && !s.playing) {
-            s.macroEvents.clear();
-            s.macroStartTime = now();
-            s.recording = true;
-            s.playing = false;
-            Notification::create("Macro: Recording", NotificationIcon::Info)->show();
-        } else if (s.recording) {
-            s.recording = false;
-            s.playing = !s.macroEvents.empty();
-            s.macroStartTime = now();
-            s.macroIndex = 0;
+    void onCycleTps(CCObject*) {
+        const int presets[] = { 60, 120, 240, 360, 480 };
+        auto& st = state();
+        int next = presets[0];
+        for (size_t i = 0; i < std::size(presets); ++i) {
+            if (st.tpsLimit == presets[i]) {
+                next = presets[(i + 1) % std::size(presets)];
+                break;
+            }
+        }
+        applyTps(next);
+        refreshLabels();
+    }
+
+    void onCycleMacro(CCObject*) {
+        auto& st = state();
+        if (!st.macroRecord && !st.macroPlay) {
+            // Start recording realistic frames
+            st.macroFrames.clear();
+            st.currentFrame = 0;
+            st.macroRecord = true;
+            st.macroPlay = false;
+            Notification::create("LDM Macro: Recording frames", NotificationIcon::Info)->show();
+        } else if (st.macroRecord) {
+            // Switch to playback
+            st.macroRecord = false;
+            st.macroPlay = !st.macroFrames.empty();
+            st.currentFrame = 0;
             Notification::create(
-                s.playing ? fmt::format("Macro: Playing ({})", s.macroEvents.size()) : "Macro: No events",
+                st.macroPlay ? fmt::format("LDM Macro: Playing ({}f)", st.macroFrames.size()) : "LDM Macro: Empty",
                 NotificationIcon::Info
             )->show();
         } else {
-            s.playing = false;
-            s.recording = false;
-            Notification::create("Macro: Stopped", NotificationIcon::Info)->show();
+            // Stop macro
+            st.macroPlay = false;
+            st.macroRecord = false;
+            Notification::create("LDM Macro: Stopped", NotificationIcon::Info)->show();
         }
-        refreshUi();
+        refreshLabels();
     }
 
-    void onReset(CCObject*) {
-        auto& s = state();
-        s.deaths = 0;
-        s.totalClicks = 0;
-        s.validClicks = 0;
-        refreshUi();
+    void onToggleHitbox(CCObject*) {
+        auto& st = state();
+        st.hitboxTrail = !st.hitboxTrail;
+        if (!st.hitboxTrail) st.hitboxPoints.clear();
+        refreshLabels();
+        saveState();
+    }
+
+    void onResetStats(CCObject*) {
+        auto& st = state();
+        st.deaths = 0;
+        st.totalClicks = 0;
+        st.validClicks = 0;
+        st.hitboxPoints.clear();
+        refreshLabels();
+        saveState();
     }
 
     bool ccTouchBegan(CCTouch* touch, CCEvent* event) override {
-        auto& s = state();
-        if (s.menuVisible && m_box && m_box->isVisible()) {
-            CCPoint local = m_box->convertToNodeSpace(touch->getLocation());
-            auto sz = m_box->getContentSize();
-            if (local.x >= 0.f && local.x <= sz.width && local.y >= sz.height - 28.f && local.y <= sz.height) {
+        auto& st = state();
+        if (!st.menuHidden && m_panel && m_panel->isVisible()) {
+            CCPoint local = m_panel->convertToNodeSpace(touch->getLocation());
+            auto sz = m_panel->getContentSize();
+            // Drag from top header bar area
+            if (local.x >= 0.f && local.x <= sz.width && local.y >= sz.height - 32.f && local.y <= sz.height) {
                 m_dragging = true;
-                m_dragDelta = ccpSub(m_box->getPosition(), touch->getLocation());
+                m_dragOffset = ccpSub(m_panel->getPosition(), touch->getLocation());
                 return true;
             }
         }
@@ -335,43 +497,53 @@ public:
     }
 
     void ccTouchMoved(CCTouch* touch, CCEvent* event) override {
-        if (!m_dragging || !m_box) return;
-        auto win = CCDirector::sharedDirector()->getWinSize();
-        auto sz = m_box->getContentSize();
-        CCPoint pos = ccpAdd(touch->getLocation(), m_dragDelta);
-        pos.x = std::clamp(pos.x, 0.f, std::max(0.f, win.width - sz.width));
-        pos.y = std::clamp(pos.y, 0.f, std::max(0.f, win.height - sz.height));
-        m_box->setPosition(pos);
-        state().panelPos = pos;
+        if (!m_dragging || !m_panel) return;
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+        auto sz = m_panel->getContentSize();
+        CCPoint next = ccpAdd(touch->getLocation(), m_dragOffset);
+        next.x = std::clamp(next.x, 0.f, std::max(0.f, winSize.width - sz.width));
+        next.y = std::clamp(next.y, 0.f, std::max(0.f, winSize.height - sz.height));
+        m_panel->setPosition(next);
+        state().menuPos = next;
     }
 
     void ccTouchEnded(CCTouch* touch, CCEvent* event) override {
-        m_dragging = false;
+        if (m_dragging) {
+            m_dragging = false;
+            saveState();
+        }
     }
 
-    void onUpdate(float) {
-        auto& s = state();
-        s.frames++;
-        double t = now();
-        if (s.lastFpsTime == 0.0) s.lastFpsTime = t;
-        if ((t - s.lastFpsTime) >= 0.25) {
-            s.fps = static_cast<int>(s.frames / (t - s.lastFpsTime));
-            s.frames = 0;
-            s.lastFpsTime = t;
+    void onTick(float) {
+        auto& st = state();
+        st.frameCounter++;
+        double now = nowSec();
+        if (st.lastFpsSample == 0.0) st.lastFpsSample = now;
+        if ((now - st.lastFpsSample) >= 0.25) {
+            st.currentFps = static_cast<int>(st.frameCounter / (now - st.lastFpsSample));
+            st.frameCounter = 0;
+            st.lastFpsSample = now;
         }
 
-        if (m_hudLabel) {
-            auto txt = fmt::format(
+        if (m_statsLabel) {
+            auto line = fmt::format(
                 "CPS:{} FPS:{} Noclip:{} Acc:{:.1f}% Deaths:{}",
-                getCps(),
-                s.fps,
-                s.noclip ? "ON" : "OFF",
-                getAccuracy(),
-                s.deaths
+                computeCps(),
+                st.currentFps,
+                st.noclip ? "ON" : "OFF",
+                computeAccuracy(),
+                st.deaths
             );
-            m_hudLabel->setString(txt.c_str());
+            m_statsLabel->setString(line.c_str());
         }
-        drawIndicator(m_dot);
+        drawCheatCircle(m_cheatDot);
+        if (m_hitboxLbl) {
+            m_hitboxLbl->setString(st.hitboxTrail ? fmt::format("{}f", st.hitboxPoints.size()).c_str() : "OFF");
+        }
+    }
+
+    ~LdmOverlay() override {
+        saveState();
     }
 };
 
@@ -380,64 +552,21 @@ public:
 class $modify(LDMMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
+        ldm::loadState();
         ldm::applyFps(ldm::state().fpsLimit);
         ldm::applySpeed(ldm::state().speed);
 
-        if (auto* ui = ldm::LdmMenuV1::create()) {
-            this->addChild(ui, 999);
+        if (auto* overlay = ldm::LdmOverlay::create()) {
+            this->addChild(overlay, 999);
         }
         return true;
     }
 };
 
 class $modify(LDMPlayLayer, PlayLayer) {
-    bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
-        auto& s = ldm::state();
-        s.macroIndex = 0;
-        s.macroStartTime = ldm::now();
+    struct Fields {
+        CCDrawNode* m_trailNode = nullptr;
+        double m_tpsAccumulator = 0.0;
+    };
 
-        if (auto* ui = ldm::LdmMenuV1::create()) {
-            this->addChild(ui, 999);
-        }
-        return true;
-    }
-
-    void update(float dt) {
-        PlayLayer::update(dt);
-        auto& s = ldm::state();
-        if (s.playing && !s.macroEvents.empty()) {
-            double elapsed = ldm::now() - s.macroStartTime;
-            while (s.macroIndex < s.macroEvents.size() && s.macroEvents[s.macroIndex].timeOffset <= elapsed) {
-                bool press = s.macroEvents[s.macroIndex].down;
-                if (press) this->pushButton(1, true);
-                else this->releaseButton(1, true);
-                s.macroIndex++;
-            }
-            if (s.macroIndex >= s.macroEvents.size()) {
-                s.macroIndex = 0;
-                s.macroStartTime = ldm::now();
-            }
-        }
-    }
-
-    void ccTouchBegan(CCTouch* touch, CCEvent* event) {
-        ldm::recordClick(true);
-        PlayLayer::ccTouchBegan(touch, event);
-    }
-
-    void ccTouchEnded(CCTouch* touch, CCEvent* event) {
-        if (ldm::state().recording) {
-            double t = ldm::now();
-            ldm::state().macroEvents.push_back(ldm::MacroEvent{ t - ldm::state().macroStartTime, false });
-        }
-        PlayLayer::ccTouchEnded(touch, event);
-    }
-
-    void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        auto& s = ldm::state();
-        s.deaths++;
-        if (s.noclip) return;
-        PlayLayer::destroyPlayer(player, obj);
-    }
-};
+    bool init(GJGameLevel* leve
