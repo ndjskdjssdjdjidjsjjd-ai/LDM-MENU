@@ -1,0 +1,36 @@
+{
+  "geode": "5.11.2",
+  "gd": {
+    "win": "2.2081",
+    "android": "2.2081",
+    "mac": "2.2081",
+    "ios": "2.2081"
+  },
+  "version": "v0.1.0",
+  "id": "yourname.ldm_menu",
+  "name": "LDM-MENU",
+  "developer": "YourName",
+  "description": "Low graphics & LDM menu with CPS/FPS labels, cheat indicator, and up to 240 FPS cap.",
+  "settings": {
+    "low-graphics": {
+      "type": "bool",
+      "name": "Low Graphics / LDM",
+      "description": "Enables low detail mode and reduces visual effects.",
+      "default": false
+    },
+    "show-hud": {
+      "type": "bool",
+      "name": "Show CPS, FPS & Indicator",
+      "description": "Displays CPS counter, FPS counter, and cheat status dot.",
+      "default": true
+    },
+    "fps-limit": {
+      "type": "int",
+      "name": "FPS Limit (Max 240)",
+      "description": "Target frame rate cap between 30 and 240 FPS.",
+      "default": 240,
+      "min": 30,
+      "max": 240
+    }
+  }
+}
