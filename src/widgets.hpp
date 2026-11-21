@@ -98,7 +98,7 @@ public:
 class PMBtn : public CCLayer {
 public:
     std::function<void()> cb;
-    CCSize size = {14.f, 14.f};
+    CCSize size = {12.f, 12.f};
     CCScale9Sprite* body = nullptr;
     CCScale9Sprite* mark = nullptr;
     CCLabelBMFont* labelNode = nullptr;
@@ -145,11 +145,11 @@ public:
     }
 
     static PMBtn* createToggle(std::function<void()> cb) {
-        auto r = create(CCSize{14.f, 14.f}, ccColor3B{28, 34, 58}, cb);
+        auto r = create(CCSize{12.f, 12.f}, ccColor3B{34, 22, 24}, cb);
         if (r) {
-            r->mark = box(CCSize{6.f, 6.f}, ccColor3B{72, 232, 250}, 255);
+            r->mark = box(CCSize{5.f, 5.f}, ccColor3B{255, 130, 35}, 255);
             if (r->mark) {
-                r->mark->setPosition({4.f, 4.f});
+                r->mark->setPosition({3.5f, 3.5f});
                 r->mark->setVisible(false);
                 r->addChild(r->mark);
             }
@@ -163,11 +163,11 @@ public:
 
     void setActiveTab(bool active) {
         if (body) {
-            body->setColor(active ? ccColor3B{52, 114, 214} : ccColor3B{24, 29, 50});
+            body->setColor(active ? ccColor3B{214, 78, 28} : ccColor3B{30, 18, 22});
             body->setOpacity(active ? 255 : 210);
         }
         if (labelNode) {
-            labelNode->setColor(active ? ccColor3B{255, 255, 255} : ccColor3B{145, 160, 195});
+            labelNode->setColor(active ? ccColor3B{255, 245, 225} : ccColor3B{185, 155, 145});
         }
     }
 
@@ -182,7 +182,7 @@ public:
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
         if (!t || !pmTouchAllowed(this)) return false;
         if (!inside(this->convertToNodeSpace(t->getLocation()))) return false;
-        if (body) body->setOpacity(145);
+        if (body) body->setOpacity(150);
         return true;
     }
 
@@ -201,7 +201,7 @@ public:
 class PMButton : public CCLayer {
 public:
     std::function<void()> onTap;
-    float radius = 13.f;
+    float radius = 11.5f;
     CCPoint lastPos = {0.f, 0.f};
     float moved = 0.f;
 
@@ -268,4 +268,4 @@ public:
 
     void ccTouchCancelled(CCTouch*, CCEvent*) override {}
 };
- 
+        
