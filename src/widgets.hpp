@@ -98,9 +98,10 @@ public:
 class PMBtn : public CCLayer {
 public:
     std::function<void()> cb;
-    CCSize size = {20.f, 20.f};
+    CCSize size = {18.f, 18.f};
     CCScale9Sprite* body = nullptr;
     CCScale9Sprite* mark = nullptr;
+    CCLabelBMFont* labelNode = nullptr;
 
     static CCScale9Sprite* box(CCSize size, ccColor3B color, GLubyte opacity) {
         auto s = CCScale9Sprite::create("square02b_001.png", {0.f, 0.f, 80.f, 80.f});
@@ -135,7 +136,8 @@ public:
             auto l = CCLabelBMFont::create(text ? text : "", font ? font : "chatFont.fnt");
             if (l) {
                 l->setScale(scale);
-                l->setPosition({size.width * 0.5f, size.height * 0.5f + 0.5f});
+                l->setPosition({size.width * 0.5f, size.height * 0.5f});
+                r->labelNode = l;
                 r->addChild(l);
             }
         }
@@ -143,9 +145,9 @@ public:
     }
 
     static PMBtn* createToggle(std::function<void()> cb) {
-        auto r = create(CCSize{20.f, 20.f}, ccColor3B{48, 53, 82}, cb);
+        auto r = create(CCSize{17.f, 17.f}, ccColor3B{40, 46, 74}, cb);
         if (r) {
-            r->mark = box(CCSize{12.f, 12.f}, ccColor3B{80, 235, 120}, 255);
+            r->mark = box(CCSize{9.f, 9.f}, ccColor3B{72, 238, 128}, 255);
             if (r->mark) {
                 r->mark->setPosition({4.f, 4.f});
                 r->mark->setVisible(false);
@@ -159,6 +161,16 @@ public:
         if (mark) mark->setVisible(on);
     }
 
+    void setActiveTab(bool active) {
+        if (body) {
+            body->setColor(active ? ccColor3B{68, 92, 168} : ccColor3B{36, 41, 66});
+            body->setOpacity(active ? 255 : 210);
+        }
+        if (labelNode) {
+            labelNode->setColor(active ? ccColor3B{255, 255, 255} : ccColor3B{175, 185, 210});
+        }
+    }
+
     bool inside(CCPoint l) {
         return l.x >= 0.f && l.y >= 0.f && l.x <= size.width && l.y <= size.height;
     }
@@ -170,7 +182,7 @@ public:
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
         if (!t || !pmTouchAllowed(this)) return false;
         if (!inside(this->convertToNodeSpace(t->getLocation()))) return false;
-        if (body) body->setOpacity(155);
+        if (body) body->setOpacity(150);
         return true;
     }
 
@@ -189,7 +201,7 @@ public:
 class PMButton : public CCLayer {
 public:
     std::function<void()> onTap;
-    float radius = 18.f;
+    float radius = 16.f;
     CCPoint lastPos = {0.f, 0.f};
     float moved = 0.f;
 
