@@ -93,13 +93,23 @@ public:
     }
 };
 
-// simple button / checkbox. No scale animation, so it never grows.
+// simple rounded button / checkbox. No scale animation, so it never grows.
 class PMBtn : public CCLayer {
 public:
     std::function<void()> cb;
     CCSize size;
-    CCLayerColor* body = nullptr;
-    CCLayerColor* mark = nullptr;
+    CCScale9Sprite* body = nullptr;
+    CCScale9Sprite* mark = nullptr;
+
+    // a rounded box, used for the panel and all buttons
+    static CCScale9Sprite* box(CCSize size, ccColor3B color, GLubyte opacity) {
+        auto s = CCScale9Sprite::create("square02b_001.png", {0.f, 0.f, 80.f, 80.f});
+        s->setContentSize(size);
+        s->setAnchorPoint({0.f, 0.f});
+        s->setColor(color);
+        s->setOpacity(opacity);
+        return s;
+    }
 
     static PMBtn* create(CCSize size, ccColor3B color, std::function<void()> cb) {
         auto r = new PMBtn();
@@ -107,8 +117,7 @@ public:
             r->size = size;
             r->cb = cb;
             r->setContentSize(size);
-            r->body = CCLayerColor::create(
-                ccColor4B{color.r, color.g, color.b, 230}, size.width, size.height);
+            r->body = box(size, color, 235);
             r->addChild(r->body);
             r->setTouchEnabled(true);
             r->autorelease();
@@ -119,10 +128,10 @@ public:
     }
 
     static PMBtn* createText(CCSize size, ccColor3B color, const char* text,
-                             float scale, std::function<void()> cb) {
+                             const char* font, float scale, std::function<void()> cb) {
         auto r = create(size, color, cb);
         if (r) {
-            auto l = CCLabelBMFont::create(text, "bigFont.fnt");
+            auto l = CCLabelBMFont::create(text, font);
             l->setScale(scale);
             l->setPosition({size.width / 2.f, size.height / 2.f});
             r->addChild(l);
@@ -131,9 +140,9 @@ public:
     }
 
     static PMBtn* createToggle(std::function<void()> cb) {
-        auto r = create(CCSize{22.f, 22.f}, ccColor3B{70, 70, 70}, cb);
+        auto r = create(CCSize{22.f, 22.f}, ccColor3B{55, 60, 90}, cb);
         if (r) {
-            r->mark = CCLayerColor::create(ccColor4B{60, 230, 90, 255}, 14.f, 14.f);
+            r->mark = box(CCSize{14.f, 14.f}, ccColor3B{70, 230, 110}, 255);
             r->mark->setPosition({4.f, 4.f});
             r->mark->setVisible(false);
             r->addChild(r->mark);
@@ -163,12 +172,12 @@ public:
     void ccTouchMoved(CCTouch*, CCEvent*) override {}
 
     void ccTouchEnded(CCTouch* t, CCEvent*) override {
-        body->setOpacity(230);
+        body->setOpacity(235);
         if (inside(this->convertToNodeSpace(t->getLocation())) && cb) cb();
     }
 
     void ccTouchCancelled(CCTouch*, CCEvent*) override {
-        body->setOpacity(230);
+        body->setOpacity(235);
     }
 };
 
