@@ -1,6 +1,11 @@
 {
   "geode": "5.11.2",
-  "gd": "*",
+  "gd": {
+    "win": "*",
+    "android": "*",
+    "mac": "*",
+    "ios": "*"
+  },
   "version": "v0.1.0",
   "id": "yourname.ldm_menu",
   "name": "LDM-MENU",
