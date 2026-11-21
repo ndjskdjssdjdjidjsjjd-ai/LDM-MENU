@@ -1,21 +1,41 @@
 #pragma once
+#include <cmath>
 #include <Geode/ui/Notification.hpp>
 #include "widgets.hpp"
 #include "extras.hpp"
 
+inline float uiScale() {
+    return std::clamp(Mod::get()->getSavedValue<float>("ui-scale", 0.75f), 0.5f, 1.f);
+}
+
+inline bool showStats() {
+    return Mod::get()->getSavedValue<bool>("show-stats", true);
+}
+
+inline bool showHitboxes() {
+    return Mod::get()->getSavedValue<bool>("show-hitboxes", false);
+}
+
 // the whole menu: PM button + panel
 class PMController : public CCNode {
 public:
+    static constexpr float PW = 420.f;
+    static constexpr float PH = 300.f;
+
     CCNode* panel = nullptr;
+    DragBar* dragBar = nullptr;
     CCLabelBMFont* speedLabel = nullptr;
     CCLabelBMFont* fpsLabel = nullptr;
     CCLabelBMFont* delayLabel = nullptr;
     CCLabelBMFont* trailLabel = nullptr;
     CCLabelBMFont* colorLabel = nullptr;
+    CCLabelBMFont* sizeLabel = nullptr;
     CCLabelBMFont* macroLabel = nullptr;
     PMBtn* noclipT = nullptr;
     PMBtn* safeT = nullptr;
     PMBtn* hitboxT = nullptr;
+    PMBtn* boxesT = nullptr;
+    PMBtn* statsT = nullptr;
     PMBtn* unlockT = nullptr;
     PMBtn* recT = nullptr;
     PMBtn* replayT = nullptr;
@@ -35,17 +55,16 @@ public:
         if (!CCNode::init()) return false;
         inGame = game;
         auto win = CCDirector::get()->getWinSize();
-
-        const float PW = 420.f;
-        const float PH = 265.f;
         const char* FONT = "chatFont.fnt";
+        float sc = uiScale();
 
         // dark rounded panel
         auto p = PMBtn::box({PW, PH}, {24, 26, 44}, 238);
-        float px = Mod::get()->getSavedValue<float>("panel-x", (win.width - PW) / 2.f);
-        float py = Mod::get()->getSavedValue<float>("panel-y", (win.height - PH) / 2.f);
-        px = std::clamp(px, 0.f, std::max(0.f, win.width - PW));
-        py = std::clamp(py, 0.f, std::max(0.f, win.height - PH));
+        p->setScale(sc);
+        float px = Mod::get()->getSavedValue<float>("panel-x", (win.width - PW * sc) / 2.f);
+        float py = Mod::get()->getSavedValue<float>("panel-y", (win.height - PH * sc) / 2.f);
+        px = std::clamp(px, 0.f, std::max(0.f, win.width - PW * sc));
+        py = std::clamp(py, 0.f, std::max(0.f, win.height - PH * sc));
         p->setPosition({px, py});
         p->setVisible(false);
         this->addChild(p, 1);
@@ -97,52 +116,56 @@ public:
             panel->addChild(b);
         };
 
-        auto drag = DragBar::create(panel, {PW, 30.f}, {PW, PH});
-        drag->setPosition({0.f, PH - 30.f});
-        panel->addChild(drag);
+        dragBar = DragBar::create(panel, {PW, 30.f}, {PW * sc, PH * sc});
+        dragBar->setPosition({0.f, PH - 30.f});
+        panel->addChild(dragBar);
 
         // left column
-        noclipT = toggle("Noclip", 205.f, [this]() { onNoclip(); });
-        safeT = toggle("Safe mode", 177.f, [this]() { onSafe(); });
-        hitboxT = toggle("Hitbox on death", 149.f, [this]() { onHitbox(); });
-        unlockT = toggle("Unlock icons", 121.f, [this]() { onUnlock(); });
+        noclipT = toggle("Noclip", 238.f, [this]() { onNoclip(); });
+        safeT = toggle("Safe mode", 210.f, [this]() { onSafe(); });
+        hitboxT = toggle("Hitbox on death", 182.f, [this]() { onHitbox(); });
+        boxesT = toggle("Show hitboxes", 154.f, [this]() { onBoxes(); });
+        statsT = toggle("Show stats", 126.f, [this]() { onStats(); });
+        unlockT = toggle("Unlock icons", 98.f, [this]() { onUnlock(); });
         if (inGame) {
-            recT = toggle("Record macro", 93.f, [this]() { onRecord(); });
-            replayT = toggle("Replay macro", 65.f, [this]() { onReplay(); });
-            macroLabel = label("", 14.f, 38.f, 0.65f, true);
+            recT = toggle("Record macro", 70.f, [this]() { onRecord(); });
+            replayT = toggle("Replay macro", 42.f, [this]() { onReplay(); });
+            macroLabel = label("", 14.f, 16.f, 0.65f, true);
         }
 
         // right column
-        speedLabel = stepper(205.f, [this]() { changeSpeed(-0.25f); },
+        speedLabel = stepper(238.f, [this]() { changeSpeed(-0.25f); },
                              [this]() { changeSpeed(0.25f); });
-        fpsLabel = stepper(177.f, [this]() { changeFps(-1); },
+        fpsLabel = stepper(210.f, [this]() { changeFps(-1); },
                            [this]() { changeFps(1); });
-        delayLabel = stepper(149.f, [this]() { changeDelay(-0.25f); },
+        delayLabel = stepper(182.f, [this]() { changeDelay(-0.25f); },
                              [this]() { changeDelay(0.25f); });
-        trailLabel = stepper(121.f, [this]() { changeTrail(-30); },
-                             [this]() { changeTrail(30); });
-        colorLabel = stepper(93.f, [this]() { changeColor(-1); },
+        trailLabel = stepper(154.f, [this]() { changeTrail(-50); },
+                             [this]() { changeTrail(50); });
+        colorLabel = stepper(126.f, [this]() { changeColor(-1); },
                              [this]() { changeColor(1); });
+        sizeLabel = stepper(98.f, [this]() { changeSize(-0.05f); },
+                            [this]() { changeSize(0.05f); });
 
-        button("Cheats off", 265.f, 62.f, {200, 70, 70}, [this]() { onCheatsOff(); });
-        button("Hide menu", 355.f, 62.f, {90, 95, 125}, [this]() { onHide(); });
-        button("Lite mode", 265.f, 34.f, {50, 160, 90}, [this]() { onLite(); });
-        button("CBF", 355.f, 34.f, {130, 90, 200}, []() { openCBF(); });
-        button("Save icons", 265.f, 17.f, {50, 120, 215}, []() { saveIcons(); });
-        button("Load icons", 355.f, 17.f, {50, 120, 215}, []() { loadIcons(); });
+        button("Cheats off", 265.f, 70.f, {200, 70, 70}, [this]() { onCheatsOff(); });
+        button("Hide menu", 355.f, 70.f, {90, 95, 125}, [this]() { onHide(); });
+        button("Lite mode", 265.f, 42.f, {50, 160, 90}, [this]() { onLite(); });
+        button("CBF", 355.f, 42.f, {130, 90, 200}, []() { openCBF(); });
+        button("Save icons", 265.f, 14.f, {50, 120, 215}, []() { saveIcons(); });
+        button("Load icons", 355.f, 14.f, {50, 120, 215}, []() { loadIcons(); });
 
-        // the round PM button
+        // the round PM button (smaller)
         auto pmText = CCLabelBMFont::create("PM", "bigFont.fnt");
         pmText->setScale(0.6f);
         auto circle = CircleButtonSprite::create(pmText, CircleBaseColor::Green, CircleBaseSize::Small);
-        circle->setScale(0.8f);
-        const float R = 20.f;
+        circle->setScale(0.55f);
+        const float R = 14.f;
         auto pmBtn = PMButton::create(circle, R, [this]() {
             panel->setVisible(!panel->isVisible());
             refresh();
         });
-        float bx = Mod::get()->getSavedValue<float>("btn-x", win.width - 50.f);
-        float by = Mod::get()->getSavedValue<float>("btn-y", win.height - 50.f);
+        float bx = Mod::get()->getSavedValue<float>("btn-x", win.width - 40.f);
+        float by = Mod::get()->getSavedValue<float>("btn-y", win.height - 40.f);
         bx = std::clamp(bx, 0.f, win.width - R * 2);
         by = std::clamp(by, 0.f, win.height - R * 2);
         pmBtn->setPosition({bx, by});
@@ -157,6 +180,8 @@ public:
         noclipT->setOn(s.noclip);
         safeT->setOn(s.safe);
         hitboxT->setOn(s.hitboxOnDeath);
+        boxesT->setOn(showHitboxes());
+        statsT->setOn(showStats());
         unlockT->setOn(unlockAll());
         if (recT) recT->setOn(s.recording);
         if (replayT) replayT->setOn(s.replaying);
@@ -166,6 +191,7 @@ public:
         if (s.trail == 0) trailLabel->setString("Trail: off");
         else trailLabel->setString(fmt::format("Trail: {}", s.trail).c_str());
         colorLabel->setString(fmt::format("Color: {}", TRAIL_COLORS[s.trailColor].name).c_str());
+        sizeLabel->setString(fmt::format("Size: {}%", static_cast<int>(std::round(uiScale() * 100.f))).c_str());
         if (macroLabel) macroLabel->setString(fmt::format("{} inputs", s.macro.size()).c_str());
     }
 
@@ -185,6 +211,16 @@ public:
     void onHitbox() {
         S().hitboxOnDeath = !S().hitboxOnDeath;
         saveAll();
+        refresh();
+    }
+
+    void onBoxes() {
+        Mod::get()->setSavedValue<bool>("show-hitboxes", !showHitboxes());
+        refresh();
+    }
+
+    void onStats() {
+        Mod::get()->setSavedValue<bool>("show-stats", !showStats());
         refresh();
     }
 
@@ -217,7 +253,7 @@ public:
 
     void changeTrail(int d) {
         auto& s = S();
-        s.trail = std::clamp(s.trail + d, 0, 240);
+        s.trail = std::clamp(s.trail + d, 0, 1000);
         saveAll();
         refresh();
     }
@@ -227,6 +263,20 @@ public:
         int n = static_cast<int>(TRAIL_COLORS.size());
         s.trailColor = (s.trailColor + d + n) % n;
         saveAll();
+        refresh();
+    }
+
+    void changeSize(float d) {
+        float sc = std::clamp(uiScale() + d, 0.5f, 1.f);
+        sc = std::round(sc * 20.f) / 20.f;
+        Mod::get()->setSavedValue<float>("ui-scale", sc);
+        panel->setScale(sc);
+        dragBar->panelSize = CCSize{PW * sc, PH * sc};
+        auto win = CCDirector::get()->getWinSize();
+        auto pos = panel->getPosition();
+        pos.x = std::clamp(pos.x, 0.f, std::max(0.f, win.width - PW * sc));
+        pos.y = std::clamp(pos.y, 0.f, std::max(0.f, win.height - PH * sc));
+        panel->setPosition(pos);
         refresh();
     }
 
