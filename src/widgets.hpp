@@ -268,4 +268,3 @@ public:
 
     void ccTouchCancelled(CCTouch*, CCEvent*) override {}
 };
-        
