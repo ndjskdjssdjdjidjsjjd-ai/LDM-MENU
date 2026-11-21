@@ -29,7 +29,6 @@ public:
     PMBtn* tabSettings = nullptr;
     int activeTab = 0;
 
-    // Player tab
     PMBtn* noclipT = nullptr;
     PMBtn* safeT = nullptr;
     PMBtn* hitboxShowT = nullptr;
@@ -42,7 +41,6 @@ public:
     CCLabelBMFont* trailLabel = nullptr;
     CCLabelBMFont* colorLabel = nullptr;
 
-    // Level tab
     PMBtn* bestOrbsT = nullptr;
     PMBtn* smartSpT = nullptr;
     PMBtn* autoCpT = nullptr;
@@ -52,7 +50,6 @@ public:
     CCLabelBMFont* delayLabel = nullptr;
     CCLabelBMFont* macroLabel = nullptr;
 
-    // Settings tab
     PMBtn* hideInLevelT = nullptr;
     PMBtn* unlockT = nullptr;
     PMBtn* fastMenuT = nullptr;
@@ -261,7 +258,6 @@ public:
             }
         };
 
-        // --- TAB 0: PLAYER ---
         noclipT = addToggle(playerPage, "No-Clip", 8.f, 150.f, [this]() { onNoclip(); });
         safeT = addToggle(playerPage, "Safe Mode", 8.f, 130.f, [this]() { onSafe(); });
         hitboxShowT = addToggle(playerPage, "Hitbox Show", 8.f, 110.f, [this]() { onHitboxShow(); });
@@ -283,7 +279,6 @@ public:
                                 [this]() { changeColor(-1); },
                                 [this]() { changeColor(1); });
 
-        // --- TAB 1: LEVEL ---
         bestOrbsT = addToggle(levelPage, "No Best Orbs", 8.f, 150.f, [this]() { onBestOrbs(); });
         smartSpT = addToggle(levelPage, "Smart StartPos", 8.f, 130.f, [this]() { onSmartStartPos(); });
         autoCpT = addToggle(levelPage, "Auto Checkpoints", 8.f, 110.f, [this]() { onAutoCheckpoints(); });
@@ -302,7 +297,6 @@ public:
                                 [this]() { changeDelay(-0.25f); },
                                 [this]() { changeDelay(0.25f); });
 
-        // --- TAB 2: SETTINGS ---
         hideInLevelT = addToggle(settingsPage, "Hide In Level", 8.f, 150.f, [this]() { onHideInLevel(); });
         unlockT = addToggle(settingsPage, "Unlock Icons", 8.f, 130.f, [this]() { onUnlock(); });
         fastMenuT = addToggle(settingsPage, "Fast Menu", 8.f, 110.f, [this]() { onFastMenu(); });
@@ -310,11 +304,9 @@ public:
         addBtn(settingsPage, "CBF", 174.f, 150.f, 54.f, {138, 52, 128}, []() { openCBF(); });
         addBtn(settingsPage, "Lite Mode", 234.f, 150.f, 58.f, {42, 134, 72}, [this]() { onLite(); });
 
-        // Compact bottom bar across all tabs
         addBtn(panel, "All Off", 8.f, 12.f, 54.f, {186, 42, 46}, [this]() { onAllCheatsOff(); });
         addBtn(panel, "Hide Menu", 68.f, 12.f, 58.f, {58, 34, 38}, [this]() { onHide(); });
 
-        // Compact floating MEGA CRACK button
         auto mcText = CCLabelBMFont::create("MC", "bigFont.fnt");
         if (mcText) mcText->setScale(0.26f);
         auto circle = CircleButtonSprite::create(mcText, CircleBaseColor::Green, CircleBaseSize::Small);
@@ -522,4 +514,11 @@ public:
         s.hitboxOnDeath = false;
         s.respawnDelay = 0.f;
         saveAll();
- 
+        refresh();
+        pmNotify("Lite mode enabled");
+    }
+
+    void onHide() {
+        Mod::get()->setSettingValue<bool>("hide-menu", true);
+        this->setVisible(false);
+        pmNotify("MEGA CRACK hidden. Re-enable in Geode mod settings
