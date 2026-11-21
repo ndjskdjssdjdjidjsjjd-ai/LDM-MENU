@@ -20,7 +20,7 @@ inline const std::vector<TrailColor> TRAIL_COLORS = {
     {"Green", {50, 245, 110}},
     {"Blue", {70, 145, 255}},
     {"Pink", {255, 105, 205}},
-    {"Cyan", {65, 225, 245}}
+    {"Fire", {255, 115, 25}}
 };
 
 struct PMState {
@@ -33,6 +33,7 @@ struct PMState {
     bool autoCheckpoints = true;
     bool fastMenu = false;
     bool liveTrail = false;
+    bool hitboxShow = false;
     bool hideInLevel = false;
     float speed = 1.f;
     int fpsIndex = 1;
@@ -65,12 +66,13 @@ inline PMState& S() {
         s.autoCheckpoints = m->getSavedValue<bool>("auto-checkpoints", true);
         s.fastMenu = m->getSavedValue<bool>("fast-menu", false);
         s.liveTrail = m->getSavedValue<bool>("live-trail", false);
+        s.hitboxShow = m->getSavedValue<bool>("hitbox-show", false);
         s.hideInLevel = m->getSavedValue<bool>("hide-in-level", false);
         s.speed = std::clamp(m->getSavedValue<float>("speed", 1.f), 0.25f, 2.f);
         s.fpsIndex = std::clamp(m->getSavedValue<int>("fps-index", 1), 0,
                                 static_cast<int>(FPS_STEPS.size()) - 1);
         s.respawnDelay = std::clamp(m->getSavedValue<float>("delay", 0.f), 0.f, 2.f);
-        s.trail = std::clamp(m->getSavedValue<int>("trail", 0), 0, 120);
+        s.trail = std::clamp(m->getSavedValue<int>("trail", 0), 0, 1000);
         s.trailColor = std::clamp(m->getSavedValue<int>("trail-color", 0), 0,
                                   static_cast<int>(TRAIL_COLORS.size()) - 1);
         s.hitboxOnDeath = m->getSavedValue<bool>("hitbox-death", false);
@@ -90,6 +92,7 @@ inline void saveAll() {
     m->setSavedValue<bool>("auto-checkpoints", s.autoCheckpoints);
     m->setSavedValue<bool>("fast-menu", s.fastMenu);
     m->setSavedValue<bool>("live-trail", s.liveTrail);
+    m->setSavedValue<bool>("hitbox-show", s.hitboxShow);
     m->setSavedValue<bool>("hide-in-level", s.hideInLevel);
     m->setSavedValue<float>("speed", s.speed);
     m->setSavedValue<int>("fps-index", s.fpsIndex);
