@@ -1,10 +1,9 @@
 #pragma once
 #include "state.hpp"
 
-// swallows touches inside the panel so taps don't reach the game
 class TouchBlocker : public CCLayer {
 public:
-    CCSize area;
+    CCSize area = {0.f, 0.f};
 
     static TouchBlocker* create(CCSize area) {
         auto r = new TouchBlocker();
@@ -24,9 +23,9 @@ public:
     }
 
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
-        if (!pmTouchAllowed(this)) return false;
+        if (!t || !pmTouchAllowed(this)) return false;
         auto l = this->convertToNodeSpace(t->getLocation());
-        return l.x >= 0 && l.y >= 0 && l.x <= area.width && l.y <= area.height;
+        return l.x >= 0.f && l.y >= 0.f && l.x <= area.width && l.y <= area.height;
     }
 
     void ccTouchMoved(CCTouch*, CCEvent*) override {}
@@ -34,13 +33,12 @@ public:
     void ccTouchCancelled(CCTouch*, CCEvent*) override {}
 };
 
-// drag the panel by its title bar
 class DragBar : public CCLayer {
 public:
     CCNode* target = nullptr;
-    CCSize barSize;
-    CCSize panelSize;
-    CCPoint lastPos;
+    CCSize barSize = {0.f, 0.f};
+    CCSize panelSize = {0.f, 0.f};
+    CCPoint lastPos = {0.f, 0.f};
 
     static DragBar* create(CCNode* target, CCSize barSize, CCSize panelSize) {
         auto r = new DragBar();
@@ -62,27 +60,31 @@ public:
     }
 
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
-        if (!pmTouchAllowed(this)) return false;
+        if (!t || !target || !pmTouchAllowed(this)) return false;
         auto local = this->convertToNodeSpace(t->getLocation());
-        if (local.x < 0 || local.y < 0 || local.x > barSize.width || local.y > barSize.height)
+        if (local.x < 0.f || local.y < 0.f || local.x > barSize.width || local.y > barSize.height)
             return false;
         lastPos = t->getLocation();
         return true;
     }
 
     void ccTouchMoved(CCTouch* t, CCEvent*) override {
+        if (!t || !target) return;
         auto p = t->getLocation();
         auto pos = target->getPosition();
         pos.x += p.x - lastPos.x;
         pos.y += p.y - lastPos.y;
         lastPos = p;
         auto win = CCDirector::get()->getWinSize();
-        pos.x = std::clamp(pos.x, 0.f, win.width - panelSize.width);
-        pos.y = std::clamp(pos.y, 0.f, win.height - panelSize.height);
+        float maxX = std::max(0.f, win.width - panelSize.width);
+        float maxY = std::max(0.f, win.height - panelSize.height);
+        pos.x = std::clamp(pos.x, 0.f, maxX);
+        pos.y = std::clamp(pos.y, 0.f, maxY);
         target->setPosition(pos);
     }
 
     void ccTouchEnded(CCTouch*, CCEvent*) override {
+        if (!target) return;
         auto pos = target->getPosition();
         Mod::get()->setSavedValue<float>("panel-x", pos.x);
         Mod::get()->setSavedValue<float>("panel-y", pos.y);
@@ -93,17 +95,16 @@ public:
     }
 };
 
-// simple rounded button / checkbox. No scale animation, so it never grows.
 class PMBtn : public CCLayer {
 public:
     std::function<void()> cb;
-    CCSize size;
+    CCSize size = {20.f, 20.f};
     CCScale9Sprite* body = nullptr;
     CCScale9Sprite* mark = nullptr;
 
-    // a rounded box, used for the panel and all buttons
     static CCScale9Sprite* box(CCSize size, ccColor3B color, GLubyte opacity) {
         auto s = CCScale9Sprite::create("square02b_001.png", {0.f, 0.f, 80.f, 80.f});
+        if (!s) return nullptr;
         s->setContentSize(size);
         s->setAnchorPoint({0.f, 0.f});
         s->setColor(color);
@@ -117,8 +118,8 @@ public:
             r->size = size;
             r->cb = cb;
             r->setContentSize(size);
-            r->body = box(size, color, 235);
-            r->addChild(r->body);
+            r->body = box(size, color, 230);
+            if (r->body) r->addChild(r->body);
             r->setTouchEnabled(true);
             r->autorelease();
             return r;
@@ -131,21 +132,25 @@ public:
                              const char* font, float scale, std::function<void()> cb) {
         auto r = create(size, color, cb);
         if (r) {
-            auto l = CCLabelBMFont::create(text, font);
-            l->setScale(scale);
-            l->setPosition({size.width / 2.f, size.height / 2.f});
-            r->addChild(l);
+            auto l = CCLabelBMFont::create(text ? text : "", font ? font : "chatFont.fnt");
+            if (l) {
+                l->setScale(scale);
+                l->setPosition({size.width * 0.5f, size.height * 0.5f + 0.5f});
+                r->addChild(l);
+            }
         }
         return r;
     }
 
     static PMBtn* createToggle(std::function<void()> cb) {
-        auto r = create(CCSize{22.f, 22.f}, ccColor3B{55, 60, 90}, cb);
+        auto r = create(CCSize{20.f, 20.f}, ccColor3B{48, 53, 82}, cb);
         if (r) {
-            r->mark = box(CCSize{14.f, 14.f}, ccColor3B{70, 230, 110}, 255);
-            r->mark->setPosition({4.f, 4.f});
-            r->mark->setVisible(false);
-            r->addChild(r->mark);
+            r->mark = box(CCSize{12.f, 12.f}, ccColor3B{80, 235, 120}, 255);
+            if (r->mark) {
+                r->mark->setPosition({4.f, 4.f});
+                r->mark->setVisible(false);
+                r->addChild(r->mark);
+            }
         }
         return r;
     }
@@ -155,7 +160,7 @@ public:
     }
 
     bool inside(CCPoint l) {
-        return l.x >= 0 && l.y >= 0 && l.x <= size.width && l.y <= size.height;
+        return l.x >= 0.f && l.y >= 0.f && l.x <= size.width && l.y <= size.height;
     }
 
     void registerWithTouchDispatcher() override {
@@ -163,30 +168,29 @@ public:
     }
 
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
-        if (!pmTouchAllowed(this)) return false;
+        if (!t || !pmTouchAllowed(this)) return false;
         if (!inside(this->convertToNodeSpace(t->getLocation()))) return false;
-        body->setOpacity(150);
+        if (body) body->setOpacity(155);
         return true;
     }
 
     void ccTouchMoved(CCTouch*, CCEvent*) override {}
 
     void ccTouchEnded(CCTouch* t, CCEvent*) override {
-        body->setOpacity(235);
-        if (inside(this->convertToNodeSpace(t->getLocation())) && cb) cb();
+        if (body) body->setOpacity(230);
+        if (t && inside(this->convertToNodeSpace(t->getLocation())) && cb) cb();
     }
 
     void ccTouchCancelled(CCTouch*, CCEvent*) override {
-        body->setOpacity(235);
+        if (body) body->setOpacity(230);
     }
 };
 
-// the round PM button: tap to open, drag to move
 class PMButton : public CCLayer {
 public:
     std::function<void()> onTap;
-    float radius = 20.f;
-    CCPoint lastPos;
+    float radius = 18.f;
+    CCPoint lastPos = {0.f, 0.f};
     float moved = 0.f;
 
     static PMButton* create(CCNode* icon, float radius, std::function<void()> cb) {
@@ -194,9 +198,11 @@ public:
         if (r && r->init()) {
             r->radius = radius;
             r->onTap = cb;
-            r->setContentSize({radius * 2, radius * 2});
-            icon->setPosition({radius, radius});
-            r->addChild(icon);
+            r->setContentSize({radius * 2.f, radius * 2.f});
+            if (icon) {
+                icon->setPosition({radius, radius});
+                r->addChild(icon);
+            }
             r->setTouchEnabled(true);
             r->autorelease();
             return r;
@@ -210,7 +216,7 @@ public:
     }
 
     bool ccTouchBegan(CCTouch* t, CCEvent*) override {
-        if (!pmTouchAllowed(this)) return false;
+        if (!t || !pmTouchAllowed(this)) return false;
         auto local = this->convertToNodeSpace(t->getLocation());
         float dx = local.x - radius;
         float dy = local.y - radius;
@@ -221,6 +227,7 @@ public:
     }
 
     void ccTouchMoved(CCTouch* t, CCEvent*) override {
+        if (!t) return;
         auto p = t->getLocation();
         float dx = p.x - lastPos.x;
         float dy = p.y - lastPos.y;
@@ -228,9 +235,11 @@ public:
         moved += std::abs(dx) + std::abs(dy);
         if (moved > 6.f) {
             auto win = CCDirector::get()->getWinSize();
+            float maxX = std::max(0.f, win.width - radius * 2.f);
+            float maxY = std::max(0.f, win.height - radius * 2.f);
             auto pos = this->getPosition();
-            pos.x = std::clamp(pos.x + dx, 0.f, win.width - radius * 2);
-            pos.y = std::clamp(pos.y + dy, 0.f, win.height - radius * 2);
+            pos.x = std::clamp(pos.x + dx, 0.f, maxX);
+            pos.y = std::clamp(pos.y + dy, 0.f, maxY);
             this->setPosition(pos);
         }
     }
