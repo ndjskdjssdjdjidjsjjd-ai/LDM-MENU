@@ -1,11 +1,25 @@
 #pragma once
 #include <Geode/ui/Notification.hpp>
+#include <cmath>
+#include <vector>
 #include "widgets.hpp"
 #include "extras.hpp"
 
 class PMController : public CCNode {
 public:
+    struct Ember {
+        float x = 0.f;
+        float y = 0.f;
+        float vy = 16.f;
+        float drift = 0.f;
+        float size = 2.f;
+        float life = 0.f;
+    };
+
     CCNode* panel = nullptr;
+    CCDrawNode* fireBg = nullptr;
+    std::vector<Ember> embers;
+
     CCNode* playerPage = nullptr;
     CCNode* levelPage = nullptr;
     CCNode* settingsPage = nullptr;
@@ -18,6 +32,7 @@ public:
     // Player tab
     PMBtn* noclipT = nullptr;
     PMBtn* safeT = nullptr;
+    PMBtn* hitboxShowT = nullptr;
     PMBtn* liveTrailT = nullptr;
     PMBtn* hitboxT = nullptr;
     PMBtn* instantT = nullptr;
@@ -54,17 +69,69 @@ public:
         return nullptr;
     }
 
+    void initEmbers(float pw, float ph) {
+        embers.clear();
+        embers.reserve(28);
+        for (int i = 0; i < 28; ++i) {
+            Ember e;
+            e.x = ((i * 37) % std::max(1, static_cast<int>(pw) - 12)) + 6.f;
+            e.y = ((i * 19) % std::max(1, static_cast<int>(ph) - 28)) + 4.f;
+            e.vy = 12.f + static_cast<float>(i % 7) * 3.5f;
+            e.drift = (i % 2 == 0 ? 1.f : -1.f) * (6.f + static_cast<float>(i % 5) * 2.f);
+            e.size = 1.6f + static_cast<float>(i % 3) * 0.9f;
+            e.life = static_cast<float>(i) * 0.25f;
+            embers.push_back(e);
+        }
+    }
+
+    void updateFireBackground(float dt, float pw, float ph) {
+        if (!fireBg) return;
+        fireBg->clear();
+
+        // Warm ember glow along the lower edge of the menu
+        CCPoint baseV[4] = {
+            {2.f, 2.f},
+            {pw - 2.f, 2.f},
+            {pw - 2.f, 26.f},
+            {2.f, 26.f}
+        };
+        fireBg->drawPolygon(baseV, 4, ccColor4F{0.42f, 0.08f, 0.02f, 0.22f}, 0.f,
+                            ccColor4F{0.f, 0.f, 0.f, 0.f});
+
+        for (auto& e : embers) {
+            e.life += dt;
+            e.y += e.vy * dt;
+            e.x += std::sin(e.life * 2.4f + e.drift) * e.drift * dt;
+            if (e.y > ph - 24.f) {
+                e.y = 4.f;
+                e.x = std::fmod(std::abs(e.x + 43.f), std::max(12.f, pw - 12.f)) + 6.f;
+            }
+            float normY = std::clamp(e.y / std::max(1.f, ph - 24.f), 0.f, 1.f);
+            float alpha = (1.f - normY * 0.78f) * 0.55f;
+            ccColor4F col = (normY < 0.35f)
+                ? ccColor4F{1.0f, 0.68f, 0.14f, alpha}
+                : ccColor4F{0.96f, 0.26f, 0.06f, alpha};
+            fireBg->drawDot({e.x, e.y}, e.size, col);
+        }
+    }
+
+    void update(float dt) override {
+        if (panel && panel->isVisible()) {
+            updateFireBackground(dt, 356.f, 208.f);
+        }
+    }
+
     bool init(bool game) {
         if (!CCNode::init()) return false;
         inGame = game;
         auto dir = CCDirector::get();
         auto win = dir ? dir->getWinSize() : CCSize{480.f, 320.f};
 
-        const float PW = 368.f;
-        const float PH = 216.f;
+        const float PW = 356.f;
+        const float PH = 208.f;
         const char* FONT = "chatFont.fnt";
 
-        auto p = PMBtn::box({PW, PH}, {11, 13, 22}, 250);
+        auto p = PMBtn::box({PW, PH}, {16, 11, 14}, 250);
         if (!p) return false;
         float px = Mod::get()->getSavedValue<float>("panel-x", (win.width - PW) * 0.5f);
         float py = Mod::get()->getSavedValue<float>("panel-y", (win.height - PH) * 0.5f);
@@ -76,60 +143,67 @@ public:
         panel = p;
 
         if (auto blocker = TouchBlocker::create({PW, PH})) {
-            panel->addChild(blocker);
+            panel->addChild(blocker, 0);
         }
 
-        auto header = PMBtn::box({PW - 6.f, 18.f}, {22, 30, 60}, 255);
+        fireBg = CCDrawNode::create();
+        if (fireBg) {
+            initEmbers(PW, PH);
+            updateFireBackground(0.016f, PW, PH);
+            panel->addChild(fireBg, 1);
+        }
+
+        auto header = PMBtn::box({PW - 6.f, 17.f}, {44, 18, 22}, 255);
         if (header) {
-            header->setPosition({3.f, PH - 21.f});
-            panel->addChild(header);
+            header->setPosition({3.f, PH - 20.f});
+            panel->addChild(header, 2);
         }
 
-        auto accentLine = PMBtn::box({PW - 6.f, 1.5f}, {72, 232, 250}, 255);
+        auto accentLine = PMBtn::box({PW - 6.f, 1.5f}, {255, 115, 25}, 255);
         if (accentLine) {
-            accentLine->setPosition({3.f, PH - 22.f});
-            panel->addChild(accentLine);
+            accentLine->setPosition({3.f, PH - 21.f});
+            panel->addChild(accentLine, 2);
         }
 
         auto title = CCLabelBMFont::create("MEGA CRACK", "goldFont.fnt");
         if (title) {
-            title->setScale(0.34f);
-            title->setPosition({PW * 0.5f, PH - 12.f});
-            panel->addChild(title);
+            title->setScale(0.32f);
+            title->setPosition({PW * 0.5f, PH - 11.5f});
+            panel->addChild(title, 3);
         }
 
-        if (auto drag = DragBar::create(panel, {PW, 21.f}, {PW, PH})) {
-            drag->setPosition({0.f, PH - 21.f});
-            panel->addChild(drag);
+        if (auto drag = DragBar::create(panel, {PW, 20.f}, {PW, PH})) {
+            drag->setPosition({0.f, PH - 20.f});
+            panel->addChild(drag, 4);
         }
 
         // Compact category tabs
-        tabPlayer = PMBtn::createText({60.f, 14.f}, {52, 114, 214}, "Player", FONT, 0.46f,
+        tabPlayer = PMBtn::createText({54.f, 12.f}, {214, 78, 28}, "Player", FONT, 0.42f,
                                       [this]() { setTab(0); });
-        tabLevel = PMBtn::createText({60.f, 14.f}, {24, 29, 50}, "Level", FONT, 0.46f,
+        tabLevel = PMBtn::createText({54.f, 12.f}, {30, 18, 22}, "Level", FONT, 0.42f,
                                      [this]() { setTab(1); });
-        tabSettings = PMBtn::createText({64.f, 14.f}, {24, 29, 50}, "Settings", FONT, 0.46f,
+        tabSettings = PMBtn::createText({58.f, 12.f}, {30, 18, 22}, "Settings", FONT, 0.42f,
                                        [this]() { setTab(2); });
 
         if (tabPlayer) {
-            tabPlayer->setPosition({9.f, PH - 39.f});
-            panel->addChild(tabPlayer);
+            tabPlayer->setPosition({8.f, PH - 36.f});
+            panel->addChild(tabPlayer, 3);
         }
         if (tabLevel) {
-            tabLevel->setPosition({73.f, PH - 39.f});
-            panel->addChild(tabLevel);
+            tabLevel->setPosition({66.f, PH - 36.f});
+            panel->addChild(tabLevel, 3);
         }
         if (tabSettings) {
-            tabSettings->setPosition({137.f, PH - 39.f});
-            panel->addChild(tabSettings);
+            tabSettings->setPosition({124.f, PH - 36.f});
+            panel->addChild(tabSettings, 3);
         }
 
         auto makePage = [&]() -> CCNode* {
             auto node = CCNode::create();
             if (node) {
-                node->setContentSize({PW, PH - 44.f});
+                node->setContentSize({PW, PH - 40.f});
                 node->setPosition({0.f, 0.f});
-                panel->addChild(node);
+                panel->addChild(node, 3);
             }
             return node;
         };
@@ -139,7 +213,7 @@ public:
         settingsPage = makePage();
 
         auto addLabel = [&](CCNode* parent, const char* text, float x, float y, float scale,
-                            bool left, ccColor3B col = {222, 230, 248}) -> CCLabelBMFont* {
+                            bool left, ccColor3B col = {245, 232, 222}) -> CCLabelBMFont* {
             if (!parent) return nullptr;
             auto l = CCLabelBMFont::create(text, FONT);
             if (!l) return nullptr;
@@ -156,24 +230,24 @@ public:
             if (!parent) return nullptr;
             auto b = PMBtn::createToggle(cb);
             if (!b) return nullptr;
-            b->setPosition({x, y - 7.f});
+            b->setPosition({x, y - 6.f});
             parent->addChild(b);
-            addLabel(parent, text, x + 18.f, y, 0.49f, true);
+            addLabel(parent, text, x + 15.f, y, 0.45f, true);
             return b;
         };
 
         auto addStepper = [&](CCNode* parent, float xMinus, float xLabel, float xPlus, float y,
                               std::function<void()> minus, std::function<void()> plus) -> CCLabelBMFont* {
             if (!parent) return nullptr;
-            auto m = PMBtn::createText({18.f, 14.f}, {34, 42, 70}, "-", "bigFont.fnt", 0.26f, minus);
+            auto m = PMBtn::createText({16.f, 12.f}, {54, 24, 26}, "-", "bigFont.fnt", 0.22f, minus);
             if (m) {
-                m->setPosition({xMinus, y - 7.f});
+                m->setPosition({xMinus, y - 6.f});
                 parent->addChild(m);
             }
-            auto l = addLabel(parent, "", xLabel, y, 0.49f, false, {192, 222, 250});
-            auto pl = PMBtn::createText({18.f, 14.f}, {34, 42, 70}, "+", "bigFont.fnt", 0.26f, plus);
+            auto l = addLabel(parent, "", xLabel, y, 0.45f, false, {255, 212, 155});
+            auto pl = PMBtn::createText({16.f, 12.f}, {54, 24, 26}, "+", "bigFont.fnt", 0.22f, plus);
             if (pl) {
-                pl->setPosition({xPlus, y - 7.f});
+                pl->setPosition({xPlus, y - 6.f});
                 parent->addChild(pl);
             }
             return l;
@@ -182,85 +256,87 @@ public:
         auto addBtn = [&](CCNode* parent, const char* text, float x, float y, float w,
                             ccColor3B color, std::function<void()> cb) {
             if (!parent) return;
-            auto b = PMBtn::createText({w, 14.f}, color, text, FONT, 0.45f, cb);
+            auto b = PMBtn::createText({w, 12.f}, color, text, FONT, 0.41f, cb);
             if (b) {
-                b->setPosition({x, y - 7.f});
+                b->setPosition({x, y - 6.f});
                 parent->addChild(b);
             }
         };
 
         // --- TAB 0: PLAYER ---
-        noclipT = addToggle(playerPage, "No-Clip", 9.f, 152.f, [this]() { onNoclip(); });
-        safeT = addToggle(playerPage, "Safe Mode", 9.f, 130.f, [this]() { onSafe(); });
-        liveTrailT = addToggle(playerPage, "Live Trail", 9.f, 108.f, [this]() { onLiveTrail(); });
-        hitboxT = addToggle(playerPage, "Death Box", 9.f, 86.f, [this]() { onHitbox(); });
-        instantT = addToggle(playerPage, "Instant Retry", 9.f, 64.f, [this]() { onInstantRespawn(); });
-        noDeathT = addToggle(playerPage, "No Death FX", 9.f, 42.f, [this]() { onNoDeathEffect(); });
+        noclipT = addToggle(playerPage, "No-Clip", 8.f, 150.f, [this]() { onNoclip(); });
+        safeT = addToggle(playerPage, "Safe Mode", 8.f, 130.f, [this]() { onSafe(); });
+        hitboxShowT = addToggle(playerPage, "Hitbox Show", 8.f, 110.f, [this]() { onHitboxShow(); });
+        liveTrailT = addToggle(playerPage, "Live Trail", 8.f, 90.f, [this]() { onLiveTrail(); });
+        hitboxT = addToggle(playerPage, "Death Box", 8.f, 70.f, [this]() { onHitbox(); });
+        instantT = addToggle(playerPage, "Instant Retry", 8.f, 50.f, [this]() { onInstantRespawn(); });
+        noDeathT = addToggle(playerPage, "No Death FX", 8.f, 30.f, [this]() { onNoDeathEffect(); });
 
-        speedLabel = addStepper(playerPage, 182.f, 264.f, 336.f, 152.f,
+        speedLabel = addStepper(playerPage, 174.f, 254.f, 326.f, 150.f,
                                 [this]() { changeSpeed(-0.25f); },
                                 [this]() { changeSpeed(0.25f); });
-        fpsLabel = addStepper(playerPage, 182.f, 264.f, 336.f, 130.f,
+        fpsLabel = addStepper(playerPage, 174.f, 254.f, 326.f, 130.f,
                               [this]() { changeFps(-1); },
                               [this]() { changeFps(1); });
-        trailLabel = addStepper(playerPage, 182.f, 264.f, 336.f, 108.f,
-                                [this]() { changeTrail(-15); },
-                                [this]() { changeTrail(15); });
-        colorLabel = addStepper(playerPage, 182.f, 264.f, 336.f, 86.f,
+        trailLabel = addStepper(playerPage, 174.f, 254.f, 326.f, 110.f,
+                                [this]() { changeTrail(-25); },
+                                [this]() { changeTrail(25); });
+        colorLabel = addStepper(playerPage, 174.f, 254.f, 326.f, 90.f,
                                 [this]() { changeColor(-1); },
                                 [this]() { changeColor(1); });
 
         // --- TAB 1: LEVEL ---
-        bestOrbsT = addToggle(levelPage, "No Best Orbs", 9.f, 152.f, [this]() { onBestOrbs(); });
-        smartSpT = addToggle(levelPage, "Smart StartPos", 9.f, 130.f, [this]() { onSmartStartPos(); });
-        autoCpT = addToggle(levelPage, "Auto Checkpoints", 9.f, 108.f, [this]() { onAutoCheckpoints(); });
+        bestOrbsT = addToggle(levelPage, "No Best Orbs", 8.f, 150.f, [this]() { onBestOrbs(); });
+        smartSpT = addToggle(levelPage, "Smart StartPos", 8.f, 130.f, [this]() { onSmartStartPos(); });
+        autoCpT = addToggle(levelPage, "Auto Checkpoints", 8.f, 110.f, [this]() { onAutoCheckpoints(); });
         if (inGame) {
-            recT = addToggle(levelPage, "Record Macro", 9.f, 86.f, [this]() { onRecord(); });
-            replayT = addToggle(levelPage, "Replay Macro", 9.f, 64.f, [this]() { onReplay(); });
-            macroLabel = addLabel(levelPage, "", 9.f, 42.f, 0.46f, true, {154, 176, 214});
+            recT = addToggle(levelPage, "Record Macro", 8.f, 90.f, [this]() { onRecord(); });
+            replayT = addToggle(levelPage, "Replay Macro", 8.f, 70.f, [this]() { onReplay(); });
+            macroLabel = addLabel(levelPage, "", 8.f, 48.f, 0.43f, true, {218, 176, 152});
         }
 
         if (inGame) {
-            spLabel = addStepper(levelPage, 182.f, 264.f, 336.f, 152.f,
+            spLabel = addStepper(levelPage, 174.f, 254.f, 326.f, 150.f,
                                  [this]() { changeStartPos(-1); },
                                  [this]() { changeStartPos(1); });
         }
-        delayLabel = addStepper(levelPage, 182.f, 264.f, 336.f, 130.f,
+        delayLabel = addStepper(levelPage, 174.f, 254.f, 326.f, 130.f,
                                 [this]() { changeDelay(-0.25f); },
                                 [this]() { changeDelay(0.25f); });
 
         // --- TAB 2: SETTINGS ---
-        hideInLevelT = addToggle(settingsPage, "Hide In Level", 9.f, 152.f, [this]() { onHideInLevel(); });
-        unlockT = addToggle(settingsPage, "Unlock Icons", 9.f, 130.f, [this]() { onUnlock(); });
-        fastMenuT = addToggle(settingsPage, "Fast Menu", 9.f, 108.f, [this]() { onFastMenu(); });
+        hideInLevelT = addToggle(settingsPage, "Hide In Level", 8.f, 150.f, [this]() { onHideInLevel(); });
+        unlockT = addToggle(settingsPage, "Unlock Icons", 8.f, 130.f, [this]() { onUnlock(); });
+        fastMenuT = addToggle(settingsPage, "Fast Menu", 8.f, 110.f, [this]() { onFastMenu(); });
 
-        addBtn(settingsPage, "CBF", 182.f, 152.f, 60.f, {96, 70, 166}, []() { openCBF(); });
-        addBtn(settingsPage, "Lite Mode", 248.f, 152.f, 64.f, {36, 126, 74}, [this]() { onLite(); });
+        addBtn(settingsPage, "CBF", 174.f, 150.f, 54.f, {138, 52, 128}, []() { openCBF(); });
+        addBtn(settingsPage, "Lite Mode", 234.f, 150.f, 58.f, {42, 134, 72}, [this]() { onLite(); });
 
         // Compact bottom bar across all tabs
-        addBtn(panel, "All Off", 9.f, 14.f, 60.f, {176, 46, 50}, [this]() { onAllCheatsOff(); });
-        addBtn(panel, "Hide Menu", 74.f, 14.f, 64.f, {48, 56, 84}, [this]() { onHide(); });
+        addBtn(panel, "All Off", 8.f, 12.f, 54.f, {186, 42, 46}, [this]() { onAllCheatsOff(); });
+        addBtn(panel, "Hide Menu", 68.f, 12.f, 58.f, {58, 34, 38}, [this]() { onHide(); });
 
         // Compact floating MEGA CRACK button
         auto mcText = CCLabelBMFont::create("MC", "bigFont.fnt");
-        if (mcText) mcText->setScale(0.30f);
+        if (mcText) mcText->setScale(0.26f);
         auto circle = CircleButtonSprite::create(mcText, CircleBaseColor::Green, CircleBaseSize::Small);
-        if (circle) circle->setScale(0.50f);
-        const float R = 13.f;
+        if (circle) circle->setScale(0.44f);
+        const float R = 11.5f;
         auto mcBtn = PMButton::create(circle, R, [this]() {
             if (!panel) return;
             panel->setVisible(!panel->isVisible());
             refresh();
         });
         if (mcBtn) {
-            float bx = Mod::get()->getSavedValue<float>("btn-x", std::max(0.f, win.width - 34.f));
-            float by = Mod::get()->getSavedValue<float>("btn-y", std::max(0.f, win.height - 34.f));
+            float bx = Mod::get()->getSavedValue<float>("btn-x", std::max(0.f, win.width - 30.f));
+            float by = Mod::get()->getSavedValue<float>("btn-y", std::max(0.f, win.height - 30.f));
             bx = std::clamp(bx, 0.f, std::max(0.f, win.width - R * 2.f));
             by = std::clamp(by, 0.f, std::max(0.f, win.height - R * 2.f));
             mcBtn->setPosition({bx, by});
             this->addChild(mcBtn, 2);
         }
 
+        this->scheduleUpdate();
         setTab(0);
         refresh();
         return true;
@@ -280,6 +356,7 @@ public:
         auto& s = S();
         if (noclipT) noclipT->setOn(s.noclip);
         if (safeT) safeT->setOn(s.safe);
+        if (hitboxShowT) hitboxShowT->setOn(s.hitboxShow);
         if (liveTrailT) liveTrailT->setOn(s.liveTrail);
         if (hitboxT) hitboxT->setOn(s.hitboxOnDeath);
         if (instantT) instantT->setOn(s.instantRespawn);
@@ -313,6 +390,7 @@ public:
 
     void onNoclip() { S().noclip = !S().noclip; saveAll(); refresh(); }
     void onSafe() { S().safe = !S().safe; saveAll(); applyFps(); refresh(); }
+    void onHitboxShow() { S().hitboxShow = !S().hitboxShow; saveAll(); refresh(); }
     void onLiveTrail() { S().liveTrail = !S().liveTrail; saveAll(); refresh(); }
     void onHitbox() { S().hitboxOnDeath = !S().hitboxOnDeath; saveAll(); refresh(); }
     void onInstantRespawn() { S().instantRespawn = !S().instantRespawn; saveAll(); refresh(); }
@@ -385,7 +463,7 @@ public:
 
     void changeTrail(int d) {
         auto& s = S();
-        s.trail = std::clamp(s.trail + d, 0, 120);
+        s.trail = std::clamp(s.trail + d, 0, 1000);
         saveAll();
         refresh();
     }
@@ -442,16 +520,4 @@ public:
         auto& s = S();
         s.trail = 0;
         s.liveTrail = false;
-        s.hitboxOnDeath = false;
-        s.respawnDelay = 0.f;
-        saveAll();
-        refresh();
-        pmNotify("Lite mode enabled");
-    }
-
-    void onHide() {
-        Mod::get()->setSettingValue<bool>("hide-menu", true);
-        this->setVisible(false);
-        pmNotify("MEGA CRACK hidden. Re-enable in Geode mod settings");
-    }
-};
+        s.hitboxShow
