@@ -118,13 +118,13 @@ class $modify(PMPlay, PlayLayer) {
         PlayLayer::delayedResetLevel();
     }
 
-    // hitbox trail: outlines of the player's hitbox fading out behind you
+    // hitbox trail: a clean row of hitbox outlines fading out behind you
     void updateTrail() {
         auto& s = S();
         auto& rects = m_fields->trailRects;
         auto node = m_fields->trailNode;
         if (!node) return;
-        if (s.trail <= 0) {
+        if (!trailOn() || s.trail <= 0) {
             if (!rects.empty()) {
                 rects.clear();
                 node->clear();
@@ -135,26 +135,38 @@ class $modify(PMPlay, PlayLayer) {
         while (static_cast<int>(rects.size()) > s.trail) rects.pop_front();
 
         node->clear();
-        // the newest few frames are skipped so nothing is drawn on top of the player
-        int count = static_cast<int>(rects.size()) - 3;
-        if (count <= 0) return;
+        int total = static_cast<int>(rects.size());
+        const int skip = 4; // keep the newest boxes off the player
+        if (total <= skip) return;
 
         auto c = TRAIL_COLORS[s.trailColor].color;
         float r = c.r / 255.f;
         float g = c.g / 255.f;
         float b = c.b / 255.f;
-        int step = std::max(1, count / 80);
-        for (int i = 0; i < count; i += step) {
-            float a = static_cast<float>(i + 1) / static_cast<float>(count);
+
+        CCPoint last = {-99999.f, -99999.f};
+        int drawn = 0;
+        for (int i = total - 1 - skip; i >= 0 && drawn < 250; --i) {
             auto& rc = rects[i];
+            CCPoint center = {rc.origin.x + rc.size.width / 2.f,
+                              rc.origin.y + rc.size.height / 2.f};
+            float minD = std::max(18.f, rc.size.width);
+            float dx = center.x - last.x;
+            float dy = center.y - last.y;
+            if (dx * dx + dy * dy < minD * minD) continue;
+            last = center;
+            drawn++;
+
+            // 1 = newest, 0 = oldest
+            float age = 1.f - static_cast<float>(total - 1 - i) / static_cast<float>(total);
             CCPoint v[4] = {
                 {rc.origin.x, rc.origin.y},
                 {rc.origin.x + rc.size.width, rc.origin.y},
                 {rc.origin.x + rc.size.width, rc.origin.y + rc.size.height},
                 {rc.origin.x, rc.origin.y + rc.size.height}
             };
-            node->drawPolygon(v, 4, ccColor4F{r, g, b, 0.f}, 0.6f,
-                              ccColor4F{r, g, b, a * 0.9f});
+            node->drawPolygon(v, 4, ccColor4F{r, g, b, 0.10f * age}, 1.f,
+                              ccColor4F{r, g, b, 0.25f + 0.65f * age});
         }
     }
 
