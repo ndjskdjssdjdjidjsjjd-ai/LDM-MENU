@@ -18,7 +18,7 @@ namespace {
         }
     }
 
-    // Draws overlapping hitbox frames like a dense ribbon trail (similar to reference screenshot)
+    // Draws overlapping hitbox frames like a dense ribbon trail[span_1](start_span)[span_1](end_span)
     void drawRibbonHitboxFrame(CCDrawNode* node, const CCRect& rc, ccColor4F fillCol,
                                ccColor4F borderCol, float borderThick) {
         if (!node || rc.size.width <= 0.f || rc.size.height <= 0.f) return;
@@ -41,7 +41,7 @@ namespace {
 class $modify(PMPause, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
-        if (!menuHidden()) {
+        if (!levelMenuHidden()) {
             if (auto pm = PMController::create(true)) {
                 this->addChild(pm, 999);
             }
@@ -68,11 +68,12 @@ class $modify(PMPlay, PlayLayer) {
         CCScale9Sprite* hudBg = nullptr;
         CCLabelBMFont* stats = nullptr;
         CCDrawNode* indicator = nullptr;
-        CCDrawNode* deathNode = nullptr;
+        CCDrawNode* trailNode = nullptr;
         std::vector<StartPosObject*> startPositions;
         std::deque<CCRect> recentRects;
-        std::vector<CCRect> deathFrames;
+        std::vector<CCRect> frozenDeathFrames;
         PMController* pm = nullptr;
+        bool hasFrozenDeath = false;
         bool delayPending = false;
         int totalFrames = 0;
         int hitFrames = 0;
@@ -142,7 +143,7 @@ class $modify(PMPlay, PlayLayer) {
     }
 
     void ensureMenuAttached() {
-        if (menuHidden()) {
+        if (levelMenuHidden()) {
             if (m_fields->pm) m_fields->pm->setVisible(false);
             return;
         }
@@ -159,10 +160,10 @@ class $modify(PMPlay, PlayLayer) {
         }
     }
 
-    void renderDeathHitboxAndTrail() {
-        if (!m_fields->deathNode) return;
-        m_fields->deathNode->clear();
-        if (m_fields->deathFrames.empty()) return;
+    void renderFrames(const std::vector<CCRect>& frames, bool highlightLast) {
+        if (!m_fields->trailNode) return;
+        m_fields->trailNode->clear();
+        if (frames.empty()) return;
 
         auto& s = S();
         int colIdx = std::clamp(s.trailColor, 0, std::max(0, static_cast<int>(TRAIL_COLORS.size()) - 1));
@@ -171,18 +172,16 @@ class $modify(PMPlay, PlayLayer) {
         float g = c.g / 255.f;
         float b = c.b / 255.f;
 
-        int count = static_cast<int>(m_fields->deathFrames.size());
+        int count = static_cast<int>(frames.size());
         for (int i = 0; i < count; ++i) {
-            bool isDeathFrame = (i == count - 1);
+            bool isHead = highlightLast && (i == count - 1);
             float t = static_cast<float>(i + 1) / static_cast<float>(count);
-            if (!isDeathFrame && s.trail <= 0) continue;
-
-            float borderAlpha = isDeathFrame ? 0.98f : (0.28f + 0.58f * t);
-            float fillAlpha = isDeathFrame ? 0.24f : (0.06f + 0.16f * t);
-            float thick = isDeathFrame ? 1.25f : 0.72f;
+            float borderAlpha = isHead ? 0.98f : (0.24f + 0.58f * t);
+            float fillAlpha = isHead ? 0.24f : (0.05f + 0.15f * t);
+            float thick = isHead ? 1.25f : 0.70f;
             drawRibbonHitboxFrame(
-                m_fields->deathNode,
-                m_fields->deathFrames[i],
+                m_fields->trailNode,
+                frames[i],
                 ccColor4F{r, g, b, fillAlpha},
                 ccColor4F{r, g, b, borderAlpha},
                 thick
@@ -190,7 +189,34 @@ class $modify(PMPlay, PlayLayer) {
         }
     }
 
-    void recordDeathSnapshot() {
+    void updateTrailVisuals() {
+        if (!m_fields->trailNode) return;
+        auto& s = S();
+
+        // Live trail while playing (no death required)
+        if (s.liveTrail && m_player1) {
+            int len = (s.trail > 0) ? std::clamp(s.trail, 4, 90) : 36;
+            std::vector<CCRect> liveFrames;
+            liveFrames.reserve(static_cast<size_t>(len) + 1);
+            int start = std::max(0, static_cast<int>(m_fields->recentRects.size()) - len);
+            for (int i = start; i < static_cast<int>(m_fields->recentRects.size()); ++i) {
+                liveFrames.push_back(m_fields->recentRects[i]);
+            }
+            liveFrames.push_back(m_player1->getObjectRect());
+            renderFrames(liveFrames, true);
+            return;
+        }
+
+        // Frozen death hitbox / trail after dying
+        if (m_fields->hasFrozenDeath && !m_fields->frozenDeathFrames.empty()) {
+            renderFrames(m_fields->frozenDeathFrames, true);
+            return;
+        }
+
+        m_fields->trailNode->clear();
+    }
+
+    void captureDeathSnapshot() {
         CCRect deathBox{};
         bool hasBox = false;
         if (m_player1) {
@@ -204,16 +230,17 @@ class $modify(PMPlay, PlayLayer) {
         if (!hasBox) return;
 
         auto& s = S();
-        m_fields->deathFrames.clear();
+        m_fields->frozenDeathFrames.clear();
         int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 90) : 0;
         if (trailCount > 0 && !m_fields->recentRects.empty()) {
             int start = std::max(0, static_cast<int>(m_fields->recentRects.size()) - trailCount);
             for (int i = start; i < static_cast<int>(m_fields->recentRects.size()); ++i) {
-                m_fields->deathFrames.push_back(m_fields->recentRects[i]);
+                m_fields->frozenDeathFrames.push_back(m_fields->recentRects[i]);
             }
         }
-        m_fields->deathFrames.push_back(deathBox);
-        renderDeathHitboxAndTrail();
+        m_fields->frozenDeathFrames.push_back(deathBox);
+        m_fields->hasFrozenDeath = true;
+        renderFrames(m_fields->frozenDeathFrames, true);
     }
 
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
@@ -225,31 +252,31 @@ class $modify(PMPlay, PlayLayer) {
         applyFps();
 
         if (m_objectLayer) {
-            m_fields->deathNode = CCDrawNode::create();
-            if (m_fields->deathNode) {
-                m_objectLayer->addChild(m_fields->deathNode, 30);
+            m_fields->trailNode = CCDrawNode::create();
+            if (m_fields->trailNode) {
+                m_objectLayer->addChild(m_fields->trailNode, 30);
             }
         }
 
-        m_fields->hudBg = PMBtn::box({164.f, 22.f}, {12, 14, 24}, 165);
+        m_fields->hudBg = PMBtn::box({158.f, 20.f}, {11, 13, 22}, 168);
         if (m_fields->hudBg) {
             m_fields->hudBg->setAnchorPoint({0.f, 1.f});
-            m_fields->hudBg->setPosition({8.f, win.height - 6.f});
+            m_fields->hudBg->setPosition({7.f, win.height - 6.f});
             this->addChild(m_fields->hudBg, 945);
         }
 
         m_fields->indicator = CCDrawNode::create();
         if (m_fields->indicator) {
-            m_fields->indicator->setPosition({17.f, win.height - 17.f});
+            m_fields->indicator->setPosition({15.5f, win.height - 16.f});
             this->addChild(m_fields->indicator, 950);
         }
 
         m_fields->stats = CCLabelBMFont::create("", "chatFont.fnt");
         if (m_fields->stats) {
-            m_fields->stats->setScale(0.54f);
-            m_fields->stats->setColor({232, 238, 250});
+            m_fields->stats->setScale(0.50f);
+            m_fields->stats->setColor({230, 238, 250});
             m_fields->stats->setAnchorPoint({0.f, 1.f});
-            m_fields->stats->setPosition({28.f, win.height - 10.f});
+            m_fields->stats->setPosition({25.f, win.height - 9.5f});
             this->addChild(m_fields->stats, 950);
         }
 
@@ -275,9 +302,10 @@ class $modify(PMPlay, PlayLayer) {
         m_fields->deaths = 0;
         m_fields->lastHit = -10;
         m_fields->recentRects.clear();
-        m_fields->deathFrames.clear();
-        if (m_fields->deathNode) {
-            m_fields->deathNode->clear();
+        m_fields->frozenDeathFrames.clear();
+        m_fields->hasFrozenDeath = false;
+        if (m_fields->trailNode) {
+            m_fields->trailNode->clear();
         }
         if (s.hitboxOnDeath) {
             m_isDebugDrawEnabled = false;
@@ -295,7 +323,7 @@ class $modify(PMPlay, PlayLayer) {
             return;
         }
 
-        recordDeathSnapshot();
+        captureDeathSnapshot();
         if (s.noDeathEffect && m_player1) {
             m_player1->m_isDead = true;
             this->delayedResetLevel();
@@ -364,6 +392,7 @@ class $modify(PMPlay, PlayLayer) {
                 m_fields->recentRects.pop_front();
             }
         }
+        updateTrailVisuals();
 
         if (auto sched = CCDirector::get()->getScheduler()) {
             sched->setTimeScale(s.safe ? 1.f : s.speed);
@@ -394,7 +423,8 @@ class $modify(PMPlay, PlayLayer) {
         }
         if (speedOn) lines.push_back(fmt::format("Speed {:.2f}x", s.speed));
         if (fpsOn) lines.push_back(fmt::format("FPS Cap {}", targetFps()));
-        if (s.instantRespawn) lines.push_back("Instant Respawn");
+        if (s.liveTrail) lines.push_back("Live Trail");
+        if (s.instantRespawn) lines.push_back("Instant Retry");
         else if (s.respawnDelay > 0.01f) lines.push_back(fmt::format("Delay {:.2f}s", s.respawnDelay));
         if (s.noBestOrbs) lines.push_back("No Best Orbs");
         if (s.smartStartPos) lines.push_back("Smart StartPos");
@@ -409,11 +439,11 @@ class $modify(PMPlay, PlayLayer) {
         }
 
         if (m_fields->hudBg) {
-            float cardH = 15.f + static_cast<float>(lines.size()) * 11.f;
-            m_fields->hudBg->setContentSize({164.f, cardH});
+            float cardH = 13.f + static_cast<float>(lines.size()) * 10.f;
+            m_fields->hudBg->setContentSize({158.f, cardH});
             if (auto dir = CCDirector::get()) {
                 auto win = dir->getWinSize();
-                m_fields->hudBg->setPosition({8.f, win.height - 6.f});
+                m_fields->hudBg->setPosition({7.f, win.height - 6.f});
             }
         }
 
@@ -425,13 +455,13 @@ class $modify(PMPlay, PlayLayer) {
             m_fields->indicator->clear();
             ccColor4F fill = cheating ? ccColor4F{0.96f, 0.24f, 0.24f, 0.96f}
                                        : ccColor4F{0.22f, 0.92f, 0.40f, 0.96f};
-            m_fields->indicator->drawDot({0.f, 0.f}, 5.f, fill);
+            m_fields->indicator->drawDot({0.f, 0.f}, 4.6f, fill);
             drawCircleOutline(
                 m_fields->indicator,
                 {0.f, 0.f},
-                5.3f,
+                4.9f,
                 24,
-                1.15f,
+                1.1f,
                 ccColor4F{0.05f, 0.06f, 0.10f, 0.96f}
             );
         }
