@@ -88,7 +88,6 @@ public:
         if (!fireBg) return;
         fireBg->clear();
 
-        // Warm ember glow along the lower edge of the menu
         CCPoint baseV[4] = {
             {2.f, 2.f},
             {pw - 2.f, 2.f},
@@ -177,7 +176,6 @@ public:
             panel->addChild(drag, 4);
         }
 
-        // Compact category tabs
         tabPlayer = PMBtn::createText({54.f, 12.f}, {214, 78, 28}, "Player", FONT, 0.42f,
                                       [this]() { setTab(0); });
         tabLevel = PMBtn::createText({54.f, 12.f}, {30, 18, 22}, "Level", FONT, 0.42f,
@@ -520,4 +518,8 @@ public:
         auto& s = S();
         s.trail = 0;
         s.liveTrail = false;
-        s.hitboxShow
+        s.hitboxShow = false;
+        s.hitboxOnDeath = false;
+        s.respawnDelay = 0.f;
+        saveAll();
+ 
