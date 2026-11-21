@@ -2,6 +2,7 @@
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <cmath>
+#include <algorithm>
 #include "controller.hpp"
 
 namespace {
@@ -17,16 +18,38 @@ namespace {
         }
     }
 
-    void drawRectFrame(CCDrawNode* node, const CCRect& rc, float borderWidth,
-                       ccColor4F fillCol, ccColor4F borderCol) {
-        if (!node) return;
-        CCPoint v[4] = {
-            {rc.origin.x, rc.origin.y},
-            {rc.origin.x + rc.size.width, rc.origin.y},
-            {rc.origin.x + rc.size.width, rc.origin.y + rc.size.height},
-            {rc.origin.x, rc.origin.y + rc.size.height}
-        };
-        node->drawPolygon(v, 4, fillCol, borderWidth, borderCol);
+    // Draws a clean outlined rectangle + optional inner core frame like GD hitboxes
+    void drawRealisticHitbox(CCDrawNode* node, const CCRect& rc, ccColor4F fillCol,
+                             ccColor4F borderCol, float borderThick, bool withInnerCore) {
+        if (!node || rc.size.width <= 0.f || rc.size.height <= 0.f) return;
+
+        CCPoint bl{rc.origin.x, rc.origin.y};
+        CCPoint br{rc.origin.x + rc.size.width, rc.origin.y};
+        CCPoint tr{rc.origin.x + rc.size.width, rc.origin.y + rc.size.height};
+        CCPoint tl{rc.origin.x, rc.origin.y + rc.size.height};
+
+        CCPoint v[4] = {bl, br, tr, tl};
+        node->drawPolygon(v, 4, fillCol, 0.f, ccColor4F{0.f, 0.f, 0.f, 0.f});
+
+        node->drawSegment(bl, br, borderThick, borderCol);
+        node->drawSegment(br, tr, borderThick, borderCol);
+        node->drawSegment(tr, tl, borderThick, borderCol);
+        node->drawSegment(tl, bl, borderThick, borderCol);
+
+        if (withInnerCore && rc.size.width > 6.f && rc.size.height > 6.f) {
+            float insetX = rc.size.width * 0.22f;
+            float insetY = rc.size.height * 0.22f;
+            CCPoint ibl{rc.origin.x + insetX, rc.origin.y + insetY};
+            CCPoint ibr{rc.origin.x + rc.size.width - insetX, rc.origin.y + insetY};
+            CCPoint itr{rc.origin.x + rc.size.width - insetX, rc.origin.y + rc.size.height - insetY};
+            CCPoint itl{rc.origin.x + insetX, rc.origin.y + rc.size.height - insetY};
+            float coreThick = std::max(0.5f, borderThick * 0.65f);
+            ccColor4F coreCol{borderCol.r, borderCol.g, borderCol.b, borderCol.a * 0.65f};
+            node->drawSegment(ibl, ibr, coreThick, coreCol);
+            node->drawSegment(ibr, itr, coreThick, coreCol);
+            node->drawSegment(itr, itl, coreThick, coreCol);
+            node->drawSegment(itl, ibl, coreThick, coreCol);
+        }
     }
 }
 
@@ -57,9 +80,11 @@ class $modify(PMBase, GJBaseGameLayer) {
 
 class $modify(PMPlay, PlayLayer) {
     struct Fields {
+        CCScale9Sprite* hudBg = nullptr;
         CCLabelBMFont* stats = nullptr;
         CCDrawNode* indicator = nullptr;
         CCDrawNode* deathNode = nullptr;
+        std::vector<StartPosObject*> startPositions;
         std::deque<CCRect> recentRects;
         std::vector<CCRect> deathFrames;
         PMController* pm = nullptr;
@@ -72,6 +97,64 @@ class $modify(PMPlay, PlayLayer) {
         double fpsStart = 0.0;
         int fps = 0;
     };
+
+    void collectStartPositions() {
+        m_fields->startPositions.clear();
+        if (!m_objects) return;
+        for (auto obj : CCArrayExt<GameObject*>(m_objects)) {
+            if (auto sp = typeinfo_cast<StartPosObject*>(obj)) {
+                m_fields->startPositions.push_back(sp);
+            }
+        }
+        std::sort(m_fields->startPositions.begin(), m_fields->startPositions.end(),
+                  [](StartPosObject* a, StartPosObject* b) {
+                      return a->getPositionX() < b->getPositionX();
+                  });
+    }
+
+    void applyStartPosSelection() {
+        if (m_fields->startPositions.empty()) {
+            collectStartPositions();
+        }
+        auto& s = S();
+        auto& sps = m_fields->startPositions;
+        if (sps.empty()) {
+            s.startPosIndex = -1;
+            return;
+        }
+
+        if (s.smartStartPos) {
+            float px = m_player1 ? m_player1->getPositionX() : 0.f;
+            int bestIdx = 0;
+            for (int i = 0; i < static_cast<int>(sps.size()); ++i) {
+                if (sps[i]->getPositionX() <= px + 120.f) {
+                    bestIdx = i;
+                }
+            }
+            s.startPosIndex = bestIdx;
+            if (auto targetSp = sps[bestIdx]) {
+                this->setStartPosObject(targetSp);
+            }
+            return;
+        }
+
+        if (s.startPosIndex >= 0) {
+            int idx = std::min(s.startPosIndex, static_cast<int>(sps.size()) - 1);
+            s.startPosIndex = idx;
+            if (auto targetSp = sps[idx]) {
+                this->setStartPosObject(targetSp);
+            }
+        } else {
+            this->setStartPosObject(nullptr);
+        }
+    }
+
+    void showNewBest(bool p0, int p1, int p2, bool p3, bool p4, bool p5) {
+        if (S().noBestOrbs) {
+            return;
+        }
+        PlayLayer::showNewBest(p0, p1, p2, p3, p4, p5);
+    }
 
     void ensureMenuAttached() {
         if (menuHidden()) {
@@ -109,15 +192,16 @@ class $modify(PMPlay, PlayLayer) {
             float t = static_cast<float>(i + 1) / static_cast<float>(count);
             if (!isDeathFrame && s.trail <= 0) continue;
 
-            float alpha = isDeathFrame ? 0.95f : (0.18f + 0.52f * t);
-            float fillAlpha = isDeathFrame ? 0.24f : (0.04f + 0.12f * t);
-            float thick = isDeathFrame ? 1.4f : 0.8f;
-            drawRectFrame(
+            float alpha = isDeathFrame ? 0.96f : (0.14f + 0.45f * t);
+            float fillAlpha = isDeathFrame ? 0.14f : (0.02f + 0.06f * t);
+            float thick = isDeathFrame ? 1.15f : 0.65f;
+            drawRealisticHitbox(
                 m_fields->deathNode,
                 m_fields->deathFrames[i],
-                thick,
                 ccColor4F{r, g, b, fillAlpha},
-                ccColor4F{r, g, b, alpha}
+                ccColor4F{r, g, b, alpha},
+                thick,
+                isDeathFrame
             );
         }
     }
@@ -137,7 +221,7 @@ class $modify(PMPlay, PlayLayer) {
 
         auto& s = S();
         m_fields->deathFrames.clear();
-        int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 45) : 0;
+        int trailCount = (s.trail > 0) ? std::clamp(s.trail, 1, 36) : 0;
         if (trailCount > 0 && !m_fields->recentRects.empty()) {
             int start = std::max(0, static_cast<int>(m_fields->recentRects.size()) - trailCount);
             for (int i = start; i < static_cast<int>(m_fields->recentRects.size()); ++i) {
@@ -150,6 +234,8 @@ class $modify(PMPlay, PlayLayer) {
 
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
+        collectStartPositions();
+
         auto dir = CCDirector::get();
         auto win = dir ? dir->getWinSize() : CCSize{480.f, 320.f};
         applyFps();
@@ -157,23 +243,29 @@ class $modify(PMPlay, PlayLayer) {
         if (m_objectLayer) {
             m_fields->deathNode = CCDrawNode::create();
             if (m_fields->deathNode) {
-                m_objectLayer->addChild(m_fields->deathNode, 25);
+                m_objectLayer->addChild(m_fields->deathNode, 30);
             }
         }
 
-        // Circular cheat indicator on top-left HUD
+        m_fields->hudBg = PMBtn::box({166.f, 24.f}, {16, 18, 30}, 150);
+        if (m_fields->hudBg) {
+            m_fields->hudBg->setAnchorPoint({0.f, 1.f});
+            m_fields->hudBg->setPosition({8.f, win.height - 6.f});
+            this->addChild(m_fields->hudBg, 945);
+        }
+
         m_fields->indicator = CCDrawNode::create();
         if (m_fields->indicator) {
-            m_fields->indicator->setPosition({15.f, win.height - 15.f});
+            m_fields->indicator->setPosition({18.f, win.height - 18.f});
             this->addChild(m_fields->indicator, 950);
         }
 
-        // Clean HUD readout next to the circle
         m_fields->stats = CCLabelBMFont::create("", "chatFont.fnt");
         if (m_fields->stats) {
-            m_fields->stats->setScale(0.68f);
+            m_fields->stats->setScale(0.58f);
+            m_fields->stats->setColor({236, 240, 250});
             m_fields->stats->setAnchorPoint({0.f, 1.f});
-            m_fields->stats->setPosition({29.f, win.height - 7.f});
+            m_fields->stats->setPosition({30.f, win.height - 10.f});
             this->addChild(m_fields->stats, 950);
         }
 
@@ -184,6 +276,7 @@ class $modify(PMPlay, PlayLayer) {
     void resetLevel() {
         m_fields->delayPending = false;
         this->stopActionByTag(8801);
+        applyStartPosSelection();
         PlayLayer::resetLevel();
 
         auto& s = S();
@@ -295,18 +388,36 @@ class $modify(PMPlay, PlayLayer) {
         bool fpsOn = targetFps() != 60;
         bool cheating = noclipOn || speedOn || replayOn || fpsOn;
 
-        std::string text = fmt::format("FPS: {}  |  CPS: {}", m_fields->fps, s.clicks.size());
+        std::vector<std::string> lines;
+        lines.push_back(fmt::format("FPS {}  |  CPS {}", m_fields->fps, s.clicks.size()));
         if (noclipOn) {
             float acc = 100.f * (1.f - static_cast<float>(m_fields->hitFrames) /
                                        static_cast<float>(std::max(1, m_fields->totalFrames)));
-            text += fmt::format("\nAcc: {:.2f}%  |  Deaths: {}", acc, m_fields->deaths);
+            lines.push_back(fmt::format("Acc {:.2f}%  |  Deaths {}", acc, m_fields->deaths));
         }
-        if (speedOn) text += fmt::format("\nSpeed: {:.2f}x", s.speed);
-        if (fpsOn) text += fmt::format("\nTarget FPS: {}", targetFps());
-        if (s.respawnDelay > 0.01f) text += fmt::format("\nDelay: {:.2f}s", s.respawnDelay);
-        if (s.recording) text += "\nMacro: Recording";
-        if (replayOn) text += "\nMacro: Replaying";
-        if (s.safe) text += "\nSafe Mode";
+        if (speedOn) lines.push_back(fmt::format("Speed {:.2f}x", s.speed));
+        if (fpsOn) lines.push_back(fmt::format("FPS Cap {}", targetFps()));
+        if (s.respawnDelay > 0.01f) lines.push_back(fmt::format("Delay {:.2f}s", s.respawnDelay));
+        if (s.noBestOrbs) lines.push_back("No Best Orbs");
+        if (s.smartStartPos) lines.push_back("Smart StartPos");
+        if (s.recording) lines.push_back("Macro: Rec");
+        if (replayOn) lines.push_back("Macro: Play");
+        if (s.safe) lines.push_back("Safe Mode");
+
+        std::string text;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (i > 0) text += "\n";
+            text += lines[i];
+        }
+
+        if (m_fields->hudBg) {
+            float cardH = 16.f + static_cast<float>(lines.size()) * 12.f;
+            m_fields->hudBg->setContentSize({166.f, cardH});
+            if (auto dir = CCDirector::get()) {
+                auto win = dir->getWinSize();
+                m_fields->hudBg->setPosition({8.f, win.height - 6.f});
+            }
+        }
 
         if (m_fields->stats) {
             m_fields->stats->setString(text.c_str());
@@ -314,16 +425,16 @@ class $modify(PMPlay, PlayLayer) {
 
         if (m_fields->indicator) {
             m_fields->indicator->clear();
-            ccColor4F fill = cheating ? ccColor4F{0.96f, 0.22f, 0.22f, 0.95f}
-                                       : ccColor4F{0.20f, 0.92f, 0.36f, 0.95f};
-            m_fields->indicator->drawDot({0.f, 0.f}, 6.5f, fill);
+            ccColor4F fill = cheating ? ccColor4F{0.96f, 0.24f, 0.24f, 0.96f}
+                                       : ccColor4F{0.22f, 0.92f, 0.40f, 0.96f};
+            m_fields->indicator->drawDot({0.f, 0.f}, 5.5f, fill);
             drawCircleOutline(
                 m_fields->indicator,
                 {0.f, 0.f},
-                6.8f,
+                5.8f,
                 24,
-                1.4f,
-                ccColor4F{0.05f, 0.05f, 0.08f, 0.95f}
+                1.2f,
+                ccColor4F{0.05f, 0.06f, 0.10f, 0.96f}
             );
         }
     }
