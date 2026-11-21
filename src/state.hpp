@@ -32,6 +32,8 @@ struct PMState {
     bool noDeathEffect = false;
     bool autoCheckpoints = true;
     bool fastMenu = false;
+    bool liveTrail = false;
+    bool hideInLevel = false;
     float speed = 1.f;
     int fpsIndex = 1;
     float respawnDelay = 0.f;
@@ -62,6 +64,8 @@ inline PMState& S() {
         s.noDeathEffect = m->getSavedValue<bool>("no-death-effect", false);
         s.autoCheckpoints = m->getSavedValue<bool>("auto-checkpoints", true);
         s.fastMenu = m->getSavedValue<bool>("fast-menu", false);
+        s.liveTrail = m->getSavedValue<bool>("live-trail", false);
+        s.hideInLevel = m->getSavedValue<bool>("hide-in-level", false);
         s.speed = std::clamp(m->getSavedValue<float>("speed", 1.f), 0.25f, 2.f);
         s.fpsIndex = std::clamp(m->getSavedValue<int>("fps-index", 1), 0,
                                 static_cast<int>(FPS_STEPS.size()) - 1);
@@ -85,6 +89,8 @@ inline void saveAll() {
     m->setSavedValue<bool>("no-death-effect", s.noDeathEffect);
     m->setSavedValue<bool>("auto-checkpoints", s.autoCheckpoints);
     m->setSavedValue<bool>("fast-menu", s.fastMenu);
+    m->setSavedValue<bool>("live-trail", s.liveTrail);
+    m->setSavedValue<bool>("hide-in-level", s.hideInLevel);
     m->setSavedValue<float>("speed", s.speed);
     m->setSavedValue<int>("fps-index", s.fpsIndex);
     m->setSavedValue<float>("delay", s.respawnDelay);
@@ -113,6 +119,10 @@ inline bool unlockAll() {
 
 inline bool menuHidden() {
     return Mod::get()->getSettingValue<bool>("hide-menu");
+}
+
+inline bool levelMenuHidden() {
+    return menuHidden() || S().hideInLevel;
 }
 
 inline bool chainVisible(CCNode* n) {
