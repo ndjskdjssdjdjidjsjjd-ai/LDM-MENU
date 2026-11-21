@@ -50,7 +50,7 @@ class $modify(PMPlay, PlayLayer) {
         applyFps();
 
         m_fields->trailNode = CCDrawNode::create();
-        m_objectLayer->addChild(m_fields->trailNode, 5);
+        m_objectLayer->addChild(m_fields->trailNode, 50);
 
         m_fields->dot = CCDrawNode::create();
         m_fields->dot->setPosition({14.f, win.height - 14.f});
@@ -118,55 +118,100 @@ class $modify(PMPlay, PlayLayer) {
         PlayLayer::delayedResetLevel();
     }
 
-    // hitbox trail: a clean row of hitbox outlines fading out behind you
+    // hitbox trail: outer box + inner box + path line, fading out behind you.
+    // Only draws when BOTH "Show hitboxes" and "Hitbox trail" are on.
     void updateTrail() {
         auto& s = S();
         auto& rects = m_fields->trailRects;
         auto node = m_fields->trailNode;
         if (!node) return;
-        if (!trailOn() || s.trail <= 0) {
+
+        bool active = trailOn() && showHitboxes() && s.trail > 0;
+        if (!active) {
             if (!rects.empty()) {
                 rects.clear();
                 node->clear();
             }
             return;
         }
+
         rects.push_back(m_player1->getObjectRect());
         while (static_cast<int>(rects.size()) > s.trail) rects.pop_front();
 
+        // redraw every other frame to keep the game smooth
+        if ((s.frame & 1) != 0) return;
         node->clear();
+
         int total = static_cast<int>(rects.size());
         const int skip = 4; // keep the newest boxes off the player
         if (total <= skip) return;
+
+        struct Sample { CCRect rc; float age; };
+        std::vector<Sample> picked; // newest first
+
+        CCPoint last = {-99999.f, -99999.f};
+        for (int i = total - 1 - skip; i >= 0 && picked.size() < 120; --i) {
+            auto& rc = rects[i];
+            CCPoint center = {rc.origin.x + rc.size.width / 2.f,
+                              rc.origin.y + rc.size.height / 2.f};
+            float minD = std::max(14.f, rc.size.width * 0.9f);
+            float dx = center.x - last.x;
+            float dy = center.y - last.y;
+            if (dx * dx + dy * dy < minD * minD) continue;
+            last = center;
+            // 1 = newest, 0 = oldest
+            float age = 1.f - static_cast<float>(total - 1 - i) / static_cast<float>(total);
+            picked.push_back({rc, age});
+        }
+        if (picked.empty()) return;
 
         auto c = TRAIL_COLORS[s.trailColor].color;
         float r = c.r / 255.f;
         float g = c.g / 255.f;
         float b = c.b / 255.f;
+        // brighter shade for the inner box
+        float br = r + (1.f - r) * 0.55f;
+        float bg = g + (1.f - g) * 0.55f;
+        float bb = b + (1.f - b) * 0.55f;
 
-        CCPoint last = {-99999.f, -99999.f};
-        int drawn = 0;
-        for (int i = total - 1 - skip; i >= 0 && drawn < 250; --i) {
-            auto& rc = rects[i];
+        // draw oldest to newest so newer boxes sit on top
+        for (int k = static_cast<int>(picked.size()) - 1; k >= 0; --k) {
+            auto& sm = picked[k];
+            auto& rc = sm.rc;
+            float age = sm.age;
             CCPoint center = {rc.origin.x + rc.size.width / 2.f,
                               rc.origin.y + rc.size.height / 2.f};
-            float minD = std::max(18.f, rc.size.width);
-            float dx = center.x - last.x;
-            float dy = center.y - last.y;
-            if (dx * dx + dy * dy < minD * minD) continue;
-            last = center;
-            drawn++;
 
-            // 1 = newest, 0 = oldest
-            float age = 1.f - static_cast<float>(total - 1 - i) / static_cast<float>(total);
-            CCPoint v[4] = {
+            // layer 1: path line to the next (newer) sample
+            if (k > 0) {
+                auto& nx = picked[k - 1].rc;
+                CCPoint nc = {nx.origin.x + nx.size.width / 2.f,
+                              nx.origin.y + nx.size.height / 2.f};
+                node->drawSegment(center, nc, 0.8f,
+                                  ccColor4F{r, g, b, 0.35f + 0.4f * age});
+            }
+
+            // layer 2: outer box (faint fill + bright outline)
+            CCPoint outer[4] = {
                 {rc.origin.x, rc.origin.y},
                 {rc.origin.x + rc.size.width, rc.origin.y},
                 {rc.origin.x + rc.size.width, rc.origin.y + rc.size.height},
                 {rc.origin.x, rc.origin.y + rc.size.height}
             };
-            node->drawPolygon(v, 4, ccColor4F{r, g, b, 0.10f * age}, 1.f,
-                              ccColor4F{r, g, b, 0.25f + 0.65f * age});
+            node->drawPolygon(outer, 4, ccColor4F{r, g, b, 0.12f + 0.10f * age}, 1.5f,
+                              ccColor4F{r, g, b, 0.45f + 0.5f * age});
+
+            // layer 3: small inner box (about 30% of the outer size, approximate)
+            float hw = rc.size.width * 0.15f;
+            float hh = rc.size.height * 0.15f;
+            CCPoint inner[4] = {
+                {center.x - hw, center.y - hh},
+                {center.x + hw, center.y - hh},
+                {center.x + hw, center.y + hh},
+                {center.x - hw, center.y + hh}
+            };
+            node->drawPolygon(inner, 4, ccColor4F{br, bg, bb, 0.25f + 0.3f * age}, 1.f,
+                              ccColor4F{br, bg, bb, 0.6f + 0.4f * age});
         }
     }
 
