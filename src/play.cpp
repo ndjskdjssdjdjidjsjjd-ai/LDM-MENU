@@ -18,7 +18,6 @@ namespace {
         }
     }
 
-    // Draws a clean outlined rectangle + optional inner core frame like GD hitboxes
     void drawRealisticHitbox(CCDrawNode* node, const CCRect& rc, ccColor4F fillCol,
                              ccColor4F borderCol, float borderThick, bool withInnerCore) {
         if (!node || rc.size.width <= 0.f || rc.size.height <= 0.f) return;
@@ -247,7 +246,7 @@ class $modify(PMPlay, PlayLayer) {
             }
         }
 
-        m_fields->hudBg = PMBtn::box({166.f, 24.f}, {16, 18, 30}, 150);
+        m_fields->hudBg = PMBtn::box({168.f, 24.f}, {14, 16, 28}, 158);
         if (m_fields->hudBg) {
             m_fields->hudBg->setAnchorPoint({0.f, 1.f});
             m_fields->hudBg->setPosition({8.f, win.height - 6.f});
@@ -278,6 +277,9 @@ class $modify(PMPlay, PlayLayer) {
         this->stopActionByTag(8801);
         applyStartPosSelection();
         PlayLayer::resetLevel();
+        if (m_isPracticeMode) {
+            this->togglePracticeMode(S().autoCheckpoints);
+        }
 
         auto& s = S();
         s.frame = 0;
@@ -309,6 +311,11 @@ class $modify(PMPlay, PlayLayer) {
         }
 
         recordDeathSnapshot();
+        if (s.noDeathEffect && m_player1) {
+            m_player1->m_isDead = true;
+            this->delayedResetLevel();
+            return;
+        }
         PlayLayer::destroyPlayer(player, object);
 
         if (s.hitboxOnDeath) {
@@ -318,9 +325,14 @@ class $modify(PMPlay, PlayLayer) {
     }
 
     void delayedResetLevel() {
-        float d = S().respawnDelay;
+        auto& s = S();
+        float d = s.instantRespawn ? 0.f : s.respawnDelay;
         if (d <= 0.01f) {
-            PlayLayer::delayedResetLevel();
+            if (s.instantRespawn) {
+                this->resetLevel();
+            } else {
+                PlayLayer::delayedResetLevel();
+            }
             return;
         }
         if (m_fields->delayPending) return;
@@ -397,7 +409,8 @@ class $modify(PMPlay, PlayLayer) {
         }
         if (speedOn) lines.push_back(fmt::format("Speed {:.2f}x", s.speed));
         if (fpsOn) lines.push_back(fmt::format("FPS Cap {}", targetFps()));
-        if (s.respawnDelay > 0.01f) lines.push_back(fmt::format("Delay {:.2f}s", s.respawnDelay));
+        if (s.instantRespawn) lines.push_back("Instant Respawn");
+        else if (s.respawnDelay > 0.01f) lines.push_back(fmt::format("Delay {:.2f}s", s.respawnDelay));
         if (s.noBestOrbs) lines.push_back("No Best Orbs");
         if (s.smartStartPos) lines.push_back("Smart StartPos");
         if (s.recording) lines.push_back("Macro: Rec");
@@ -412,7 +425,7 @@ class $modify(PMPlay, PlayLayer) {
 
         if (m_fields->hudBg) {
             float cardH = 16.f + static_cast<float>(lines.size()) * 12.f;
-            m_fields->hudBg->setContentSize({166.f, cardH});
+            m_fields->hudBg->setContentSize({168.f, cardH});
             if (auto dir = CCDirector::get()) {
                 auto win = dir->getWinSize();
                 m_fields->hudBg->setPosition({8.f, win.height - 6.f});
