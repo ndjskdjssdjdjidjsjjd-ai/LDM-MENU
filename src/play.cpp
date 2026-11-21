@@ -31,9 +31,21 @@ class $modify(PMPlay, PlayLayer) {
     struct Fields {
         CCLabelBMFont* stats = nullptr;
         CCDrawNode* dot = nullptr;
-        CCDrawNode* trailNode = nullptr;
-        std::deque<CCRect> trailRects;
         PMController* pm = nullptr;
+
+        // hitbox trail
+        CCNode* liveHolder = nullptr;   // trail of the current attempt
+        CCNode* ghostHolder = nullptr;  // trail of the attempt you just died in
+        std::deque<CCDrawNode*> chunks;
+        CCDrawNode* curChunk = nullptr;
+        int curCount = 0;
+        bool hasPrev = false;
+        CCRect prevRect;
+        bool dead = false;
+        float deathX = 0.f;
+        bool ghostActive = false;
+        float ghostX = 0.f;
+
         bool boxes = false;
         int totalFrames = 0;
         int hitFrames = 0;
@@ -49,8 +61,10 @@ class $modify(PMPlay, PlayLayer) {
         auto win = CCDirector::get()->getWinSize();
         applyFps();
 
-        m_fields->trailNode = CCDrawNode::create();
-        m_objectLayer->addChild(m_fields->trailNode, 50);
+        m_fields->ghostHolder = CCNode::create();
+        m_objectLayer->addChild(m_fields->ghostHolder, 49);
+        m_fields->liveHolder = CCNode::create();
+        m_objectLayer->addChild(m_fields->liveHolder, 50);
 
         m_fields->dot = CCDrawNode::create();
         m_fields->dot->setPosition({14.f, win.height - 14.f});
@@ -69,6 +83,14 @@ class $modify(PMPlay, PlayLayer) {
         return true;
     }
 
+    void clearLive() {
+        for (auto node : m_fields->chunks) node->removeFromParent();
+        m_fields->chunks.clear();
+        m_fields->curChunk = nullptr;
+        m_fields->curCount = 0;
+        m_fields->hasPrev = false;
+    }
+
     void resetLevel() {
         PlayLayer::resetLevel();
         auto& s = S();
@@ -79,8 +101,32 @@ class $modify(PMPlay, PlayLayer) {
         m_fields->hitFrames = 0;
         m_fields->deaths = 0;
         m_fields->lastHit = -10;
-        m_fields->trailRects.clear();
-        if (m_fields->trailNode) m_fields->trailNode->clear();
+
+        // resetLevel can run before init has finished, so check first
+        if (m_fields->liveHolder && m_fields->ghostHolder) {
+            if (m_fields->dead && !m_fields->chunks.empty()) {
+                // keep the trail of the attempt you died in until you pass that spot
+                m_fields->ghostHolder->removeAllChildrenWithCleanup(true);
+                for (auto node : m_fields->chunks) {
+                    node->retain();
+                    node->removeFromParentAndCleanup(false);
+                    m_fields->ghostHolder->addChild(node);
+                    node->release();
+                }
+                m_fields->chunks.clear();
+                m_fields->curChunk = nullptr;
+                m_fields->curCount = 0;
+                m_fields->ghostX = m_fields->deathX;
+                m_fields->ghostActive = true;
+            } else {
+                this->clearLive();
+                m_fields->ghostHolder->removeAllChildrenWithCleanup(true);
+                m_fields->ghostActive = false;
+            }
+        }
+        m_fields->dead = false;
+        m_fields->hasPrev = false;
+
         if (s.hitboxOnDeath || m_fields->boxes) {
             m_isDebugDrawEnabled = m_fields->boxes;
             this->updateDebugDraw();
@@ -96,6 +142,10 @@ class $modify(PMPlay, PlayLayer) {
             return;
         }
         PlayLayer::destroyPlayer(player, object);
+        if (!m_fields->dead) {
+            m_fields->dead = true;
+            m_fields->deathX = player->getPositionX();
+        }
         if (s.hitboxOnDeath) {
             m_isDebugDrawEnabled = true;
             this->updateDebugDraw();
@@ -118,101 +168,88 @@ class $modify(PMPlay, PlayLayer) {
         PlayLayer::delayedResetLevel();
     }
 
-    // hitbox trail: outer box + inner box + path line, fading out behind you.
-    // Only draws when BOTH "Show hitboxes" and "Hitbox trail" are on.
+    // adds one hitbox outline to the trail
+    void addTrailBox(const CCRect& rc, float r, float g, float b) {
+        if (!m_fields->curChunk || m_fields->curCount >= 60) {
+            auto node = CCDrawNode::create();
+            m_fields->liveHolder->addChild(node);
+            m_fields->chunks.push_back(node);
+            m_fields->curChunk = node;
+            m_fields->curCount = 0;
+            int maxChunks = std::max(1, (S().trail * 4 + 59) / 60);
+            while (static_cast<int>(m_fields->chunks.size()) > maxChunks) {
+                m_fields->chunks.front()->removeFromParent();
+                m_fields->chunks.pop_front();
+            }
+        }
+        CCPoint v[4] = {
+            {rc.origin.x, rc.origin.y},
+            {rc.origin.x + rc.size.width, rc.origin.y},
+            {rc.origin.x + rc.size.width, rc.origin.y + rc.size.height},
+            {rc.origin.x, rc.origin.y + rc.size.height}
+        };
+        // thin bright outline + very faint fill: many of these merge into a ribbon
+        m_fields->curChunk->drawPolygon(v, 4, ccColor4F{r, g, b, 0.07f}, 0.5f,
+                                        ccColor4F{r, g, b, 0.85f});
+        m_fields->curCount++;
+    }
+
+    // hitbox trail. Only draws when BOTH "Show hitboxes" and "Hitbox trail" are on.
     void updateTrail() {
         auto& s = S();
-        auto& rects = m_fields->trailRects;
-        auto node = m_fields->trailNode;
-        if (!node) return;
+        if (!m_fields->liveHolder || !m_fields->ghostHolder) return;
 
         bool active = trailOn() && showHitboxes() && s.trail > 0;
         if (!active) {
-            if (!rects.empty()) {
-                rects.clear();
-                node->clear();
+            if (!m_fields->chunks.empty()) this->clearLive();
+            if (m_fields->ghostActive) {
+                m_fields->ghostHolder->removeAllChildrenWithCleanup(true);
+                m_fields->ghostActive = false;
             }
             return;
         }
 
-        rects.push_back(m_player1->getObjectRect());
-        while (static_cast<int>(rects.size()) > s.trail) rects.pop_front();
-
-        // redraw every other frame to keep the game smooth
-        if ((s.frame & 1) != 0) return;
-        node->clear();
-
-        int total = static_cast<int>(rects.size());
-        const int skip = 4; // keep the newest boxes off the player
-        if (total <= skip) return;
-
-        struct Sample { CCRect rc; float age; };
-        std::vector<Sample> picked; // newest first
-
-        CCPoint last = {-99999.f, -99999.f};
-        for (int i = total - 1 - skip; i >= 0 && picked.size() < 120; --i) {
-            auto& rc = rects[i];
-            CCPoint center = {rc.origin.x + rc.size.width / 2.f,
-                              rc.origin.y + rc.size.height / 2.f};
-            float minD = std::max(14.f, rc.size.width * 0.9f);
-            float dx = center.x - last.x;
-            float dy = center.y - last.y;
-            if (dx * dx + dy * dy < minD * minD) continue;
-            last = center;
-            // 1 = newest, 0 = oldest
-            float age = 1.f - static_cast<float>(total - 1 - i) / static_cast<float>(total);
-            picked.push_back({rc, age});
+        // the old trail goes away once you pass the spot where you died
+        if (m_fields->ghostActive && m_player1->getPositionX() > m_fields->ghostX) {
+            m_fields->ghostHolder->removeAllChildrenWithCleanup(true);
+            m_fields->ghostActive = false;
         }
-        if (picked.empty()) return;
+
+        // frozen while dead, so you can see where the attempt ended
+        if (m_fields->dead) return;
 
         auto c = TRAIL_COLORS[s.trailColor].color;
         float r = c.r / 255.f;
         float g = c.g / 255.f;
         float b = c.b / 255.f;
-        // brighter shade for the inner box
-        float br = r + (1.f - r) * 0.55f;
-        float bg = g + (1.f - g) * 0.55f;
-        float bb = b + (1.f - b) * 0.55f;
 
-        // draw oldest to newest so newer boxes sit on top
-        for (int k = static_cast<int>(picked.size()) - 1; k >= 0; --k) {
-            auto& sm = picked[k];
-            auto& rc = sm.rc;
-            float age = sm.age;
-            CCPoint center = {rc.origin.x + rc.size.width / 2.f,
-                              rc.origin.y + rc.size.height / 2.f};
+        CCRect now = m_player1->getObjectRect();
+        int fpsNow = m_fields->fps > 0 ? m_fields->fps : 60;
+        int steps = std::clamp(240 / fpsNow, 1, 4);
 
-            // layer 1: path line to the next (newer) sample
-            if (k > 0) {
-                auto& nx = picked[k - 1].rc;
-                CCPoint nc = {nx.origin.x + nx.size.width / 2.f,
-                              nx.origin.y + nx.size.height / 2.f};
-                node->drawSegment(center, nc, 0.8f,
-                                  ccColor4F{r, g, b, 0.35f + 0.4f * age});
-            }
-
-            // layer 2: outer box (faint fill + bright outline)
-            CCPoint outer[4] = {
-                {rc.origin.x, rc.origin.y},
-                {rc.origin.x + rc.size.width, rc.origin.y},
-                {rc.origin.x + rc.size.width, rc.origin.y + rc.size.height},
-                {rc.origin.x, rc.origin.y + rc.size.height}
-            };
-            node->drawPolygon(outer, 4, ccColor4F{r, g, b, 0.12f + 0.10f * age}, 1.5f,
-                              ccColor4F{r, g, b, 0.45f + 0.5f * age});
-
-            // layer 3: small inner box (about 30% of the outer size, approximate)
-            float hw = rc.size.width * 0.15f;
-            float hh = rc.size.height * 0.15f;
-            CCPoint inner[4] = {
-                {center.x - hw, center.y - hh},
-                {center.x + hw, center.y - hh},
-                {center.x + hw, center.y + hh},
-                {center.x - hw, center.y + hh}
-            };
-            node->drawPolygon(inner, 4, ccColor4F{br, bg, bb, 0.25f + 0.3f * age}, 1.f,
-                              ccColor4F{br, bg, bb, 0.6f + 0.4f * age});
+        bool jump = false;
+        if (m_fields->hasPrev) {
+            float dx = now.origin.x - m_fields->prevRect.origin.x;
+            float dy = now.origin.y - m_fields->prevRect.origin.y;
+            jump = (dx * dx + dy * dy) > 10000.f; // portal or teleport
         }
+
+        if (m_fields->hasPrev && !jump) {
+            auto& p = m_fields->prevRect;
+            for (int k = 1; k <= steps; ++k) {
+                float t = static_cast<float>(k) / static_cast<float>(steps);
+                CCRect rc(
+                    p.origin.x + (now.origin.x - p.origin.x) * t,
+                    p.origin.y + (now.origin.y - p.origin.y) * t,
+                    p.size.width + (now.size.width - p.size.width) * t,
+                    p.size.height + (now.size.height - p.size.height) * t);
+                this->addTrailBox(rc, r, g, b);
+            }
+        } else {
+            this->addTrailBox(now, r, g, b);
+        }
+        m_fields->prevRect = now;
+        m_fields->hasPrev = true;
     }
 
     void postUpdate(float dt) {
